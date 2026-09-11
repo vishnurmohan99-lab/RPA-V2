@@ -471,7 +471,7 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
                     setTab('logs');
                   }}
                 />
-                <div className="h-[520px]">
+                <div className="h-[min(78vh,820px)] min-h-[420px]">
                   <LiveBrowserPane
                     screenshot={live.screenshot}
                     highlight={live.highlight}
@@ -523,7 +523,7 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
                     }}
                   />
                 )}
-                <div className="h-[520px]">
+                <div className="h-[min(78vh,820px)] min-h-[420px]">
                   {runTarget === 'browser' ? (
                     <BrowsePane
                       screenshot={browse.screenshot}
