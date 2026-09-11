@@ -40,6 +40,18 @@ const SCAN_SOURCE = `(function (attr) {
     }
     var closestLabel = el.closest('label');
     if (closestLabel) return (closestLabel.textContent || '').trim();
+    // A <label> that names this field but was never wired up with for="..." -- common enough on
+    // real, imperfectly-marked-up sites (a floating-label div holding one input plus one label
+    // with no for attribute) that it's worth a nearby-container fallback before giving up.
+    var node = el.parentElement;
+    for (var depth = 0; depth < 3 && node; depth++) {
+      var nearbyLabel = node.querySelector('label');
+      if (nearbyLabel && !nearbyLabel.getAttribute('for')) {
+        var nearbyText = (nearbyLabel.textContent || '').trim();
+        if (nearbyText) return nearbyText;
+      }
+      node = node.parentElement;
+    }
     var placeholder = el.placeholder;
     if (placeholder) return placeholder.trim();
     var title = el.getAttribute('title');
