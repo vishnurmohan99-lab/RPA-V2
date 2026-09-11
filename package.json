@@ -1,0 +1,17 @@
+{
+  "name": "atlas-automation",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "web",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,server -c teal,gray \"npm:dev -w web\" \"npm:dev -w server\"",
+    "build": "npm run build -w web && npm run build -w server",
+    "test": "npm run test -w web && npm run test -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

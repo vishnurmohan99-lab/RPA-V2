@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+
+# runtime data written by the local server
+server/data/*.json
+server/files/
+server/destinations/
+server/traces/
+server/.auth/
