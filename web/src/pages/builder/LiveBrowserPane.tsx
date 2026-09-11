@@ -1,4 +1,4 @@
-import { Crosshair, Globe } from 'lucide-react';
+import { Crosshair } from 'lucide-react';
 import { useRef } from 'react';
 import type { LiveHighlight, LiveLog } from './useLiveRunner';
 import { useContainSize } from './useContainSize';
@@ -17,7 +17,10 @@ const LOG_DOT = { ok: 'bg-[#067647]', warn: 'bg-[#B54708]', err: 'bg-[#B42318]',
  * The browser pane for a real Playwright session: a live screenshot feed (scaled to a fixed
  * 1280×800 viewport, same as the runner launches) with a box overlay positioned from the
  * server's real element coordinates, plus the running log. Clicking while `picking` sends the
- * normalized click point back to the server so it can tell what real element is there.
+ * normalized click point back to the server so it can tell what real element is there. No
+ * address-bar-style chrome of its own on purpose — an earlier version drew a fake, unclickable
+ * "URL bar" above the screenshot, which just made a real live page look like a boxed-in iframe
+ * embed instead of an actual browser. The popup tab itself is the browser here.
  */
 export function LiveBrowserPane({
   screenshot,
@@ -26,7 +29,6 @@ export function LiveBrowserPane({
   picking,
   onPick,
   onScroll,
-  startUrl,
 }: {
   screenshot: string | null;
   highlight: LiveHighlight | null;
@@ -34,7 +36,6 @@ export function LiveBrowserPane({
   picking: boolean;
   onPick: (xPct: number, yPct: number) => void;
   onScroll: (deltaY: number) => void;
-  startUrl: string;
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
   const VIEW_W = 1280;
@@ -58,13 +59,7 @@ export function LiveBrowserPane({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-line bg-white">
-      <div className="flex items-center gap-2.5 border-b border-line bg-[#FCFCFD] px-3.5 py-2.5">
-        <Globe size={13} className="text-muted" />
-        <div className="min-w-0 flex-1 truncate rounded-md bg-[#F2F4F7] px-2.5 py-[5px] text-[11.5px] text-muted">{startUrl}</div>
-        <span className="whitespace-nowrap text-[11.5px] font-semibold text-teal">Real browser</span>
-      </div>
-
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-white">
       <div ref={containerRef} className="flex min-h-0 flex-[2] items-center justify-center overflow-hidden bg-[#0B0D0F]" onWheel={onWheel}>
         {screenshot ? (
           // Sized in JS (useContainSize) to the exact pixel box that fits the container without

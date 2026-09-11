@@ -46,10 +46,16 @@ export function LiveViewWindow({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    document.title = 'Atlas — Live view';
+    // No fake address-bar UI in the pane itself (see BrowsePane/LiveBrowserPane) -- the tab title
+    // is where the target URL shows up instead, the same way any other browser tab would.
+    try {
+      document.title = `Atlas — ${new URL(url).hostname}`;
+    } catch {
+      document.title = 'Atlas — Live view';
+    }
     channelRef.current = new BroadcastChannel(liveChannelName(automationId));
     return () => channelRef.current?.close();
-  }, [automationId]);
+  }, [automationId, url]);
 
   // A mouse wheel fires many events per gesture; sending each straight through (as it used to)
   // meant a normal scroll queued up a pile of slow, overlapping requests on the server with no
@@ -122,11 +128,11 @@ export function LiveViewWindow({
   };
 
   return (
-    <div className="relative h-screen min-h-0 bg-[#F2F4F7] p-3">
+    <div className="relative h-screen min-h-0 bg-[#0B0D0F]">
       {kind === 'browse' ? (
-        <BrowsePane screenshot={screenshot} connecting={!connected} error={null} url={url} recording onClick={onClick} onScroll={onWheelScroll} />
+        <BrowsePane screenshot={screenshot} connecting={!connected} error={null} recording onClick={onClick} onScroll={onWheelScroll} />
       ) : (
-        <LiveBrowserPane screenshot={screenshot} highlight={highlight} logs={logs} picking onPick={onClick} onScroll={onWheelScroll} startUrl={url} />
+        <LiveBrowserPane screenshot={screenshot} highlight={highlight} logs={logs} picking onPick={onClick} onScroll={onWheelScroll} />
       )}
 
       {busy && (
