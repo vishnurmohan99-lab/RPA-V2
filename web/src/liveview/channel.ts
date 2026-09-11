@@ -18,4 +18,6 @@ export interface LiveHitMessage {
   kind: string;
   /** Set only for a field: what Diane actually typed in the popup, filled live on the real page too. */
   value?: string;
+  /** Set only for a checkbox/radio field: skip the "what should I type" prompt and record a Tick step directly. */
+  isCheckbox?: boolean;
 }

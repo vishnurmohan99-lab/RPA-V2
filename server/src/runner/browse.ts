@@ -68,16 +68,27 @@ export class BrowseSession extends EventEmitter {
    * Now the click always happens; `elementAt`'s generic fallback also means a hit is rarely null
    * any more, but "no candidate to name" and "don't click" are two different things regardless.
    */
-  async click(x: number, y: number): Promise<{ label: string; kind: Kind; isPassword?: boolean } | null> {
+  async click(x: number, y: number): Promise<{ label: string; kind: Kind; isPassword?: boolean; isCheckbox?: boolean } | null> {
     if (!this.page) return null;
     const hit = await elementAt(this.page, x, y);
     const isPassword = hit?.kind === 'button' && hit.ref === 'password';
     this.lastFieldRef = hit?.kind === 'field' && hit.ref ? hit.ref : null;
+    // A checkbox/radio is scanned as kind 'field' too (same as a text input or a <select>), since
+    // the binder itself doesn't need to tell them apart -- but a checkbox click shouldn't pause
+    // to ask "what should I type", it should just tick it and be done. Only worth the extra
+    // round-trip when it's actually going to matter.
+    let isCheckbox = false;
+    if (this.lastFieldRef) {
+      const type = await locatorFor(this.page, this.lastFieldRef)
+        .getAttribute('type')
+        .catch(() => null);
+      isCheckbox = type === 'checkbox' || type === 'radio';
+    }
     await this.page.mouse.click(x, y).catch(() => {});
     await this.page.waitForLoadState('domcontentloaded', { timeout: 4000 }).catch(() => {});
     await this.snap();
     if (!hit) return null;
-    return { label: hit.label, kind: hit.kind, ...(isPassword ? { isPassword: true } : {}) };
+    return { label: hit.label, kind: hit.kind, ...(isPassword ? { isPassword: true } : {}), ...(isCheckbox ? { isCheckbox: true } : {}) };
   }
 
   /**

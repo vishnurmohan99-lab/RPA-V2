@@ -51,17 +51,46 @@ export function LiveViewWindow({
     return () => channelRef.current?.close();
   }, [automationId]);
 
+  // A mouse wheel fires many events per gesture; sending each straight through (as it used to)
+  // meant a normal scroll queued up a pile of slow, overlapping requests on the server with no
+  // feedback at all while they worked through -- which reads exactly like scrolling doesn't do
+  // anything. This coalesces everything that arrives while one scroll is still in flight into a
+  // single follow-up call instead of firing one per wheel tick.
+  const scrollAccumRef = useRef(0);
+  const scrollingRef = useRef(false);
+  const onWheelScroll = (deltaY: number) => {
+    scrollAccumRef.current += deltaY;
+    if (scrollingRef.current) return;
+    scrollingRef.current = true;
+    (async () => {
+      while (scrollAccumRef.current !== 0) {
+        const amount = scrollAccumRef.current;
+        scrollAccumRef.current = 0;
+        await scroll(amount);
+      }
+      scrollingRef.current = false;
+    })();
+  };
+
   const onClick = async (xPct: number, yPct: number) => {
-    // One question -- or one in-flight click -- at a time. Without the busy guard, a second
-    // click before the first's response landed could open a second overlay on top of the first,
-    // both live at once, neither obviously the "current" one.
-    if (pendingField || pendingPassword || busy) return;
+    // Only one click can genuinely be in flight at a time. A *pending overlay*, though, is just
+    // an unanswered question, not a lock -- clicking elsewhere clearly means "never mind that
+    // one," so it's dismissed rather than silently swallowing the new click (which is what
+    // happened before: a forgotten "what should I type" prompt made every click after it look
+    // broken until that one was explicitly closed).
+    if (busy) return;
+    setPendingField(null);
+    setPendingPassword(false);
     setBusy(true);
     const hit = await click(xPct, yPct).finally(() => setBusy(false));
     if (!hit) return;
     if (kind === 'browse' && hit.isPassword) {
       setPendingPassword(true);
       setValue('');
+      return;
+    }
+    if (kind === 'browse' && hit.kind === 'field' && hit.isCheckbox) {
+      channelRef.current?.postMessage({ type: 'hit', label: hit.label, kind: hit.kind, isCheckbox: true });
       return;
     }
     if (kind === 'browse' && hit.kind === 'field') {
@@ -95,9 +124,9 @@ export function LiveViewWindow({
   return (
     <div className="relative h-screen min-h-0 bg-[#F2F4F7] p-3">
       {kind === 'browse' ? (
-        <BrowsePane screenshot={screenshot} connecting={!connected} error={null} url={url} recording onClick={onClick} onScroll={scroll} />
+        <BrowsePane screenshot={screenshot} connecting={!connected} error={null} url={url} recording onClick={onClick} onScroll={onWheelScroll} />
       ) : (
-        <LiveBrowserPane screenshot={screenshot} highlight={highlight} logs={logs} picking onPick={onClick} onScroll={scroll} startUrl={url} />
+        <LiveBrowserPane screenshot={screenshot} highlight={highlight} logs={logs} picking onPick={onClick} onScroll={onWheelScroll} startUrl={url} />
       )}
 
       {busy && (

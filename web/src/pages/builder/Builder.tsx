@@ -208,7 +208,9 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
   // `value` is only ever set for a field click made in the live-view popup tab (see
   // LiveViewWindow.tsx) — it already asked "what should I type" right there and filled it on the
   // real page for real, so there's no need for the old in-builder record-prompt round-trip.
-  const onPick = (label: string, kind: Kind, value?: string) => {
+  // `isCheckbox` likewise only ever comes from the popup: a checkbox/radio field shouldn't pause
+  // to ask "what should I type" at all, it should just become a Tick step immediately.
+  const onPick = (label: string, kind: Kind, value?: string, isCheckbox?: boolean) => {
     if (pick?.for === 'stop') {
       setPick(null);
       runner.answer(label);
@@ -224,6 +226,10 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
       return;
     }
     if (recording) {
+      if (kind === 'field' && isCheckbox) {
+        place(makeStep('tick', label, undefined, { screen }));
+        return;
+      }
       if (kind === 'field' && value === undefined) {
         setRecordPrompt(label);
         return;
@@ -277,14 +283,14 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
   // Routes a click made in the popup tab back into the same recording / point-at-it / stop-and-
   // ask-answer logic a click on the builder's own (now-removed) inline pane used to trigger. Kept
   // in a ref so the channel subscription below doesn't need to reopen every time these change.
-  const hitHandlerRef = useRef((_label: string, _kind: Kind, _value?: string) => {});
-  hitHandlerRef.current = (label, kind, value) => {
+  const hitHandlerRef = useRef((_label: string, _kind: Kind, _value?: string, _isCheckbox?: boolean) => {});
+  hitHandlerRef.current = (label, kind, value, isCheckbox) => {
     if (live.phase === 'attention') {
       live.answer(label);
       return;
     }
     if (live.phase !== 'idle') return;
-    onPick(label, kind, value);
+    onPick(label, kind, value, isCheckbox);
   };
 
   // Keyed by the workflow's own id (see channel.ts) and subscribed for as long as the builder
@@ -294,8 +300,8 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
   useEffect(() => {
     const channel = new BroadcastChannel(liveChannelName(automation.id));
     channel.onmessage = (ev) => {
-      const { type, label, kind, value } = ev.data ?? {};
-      if (type === 'hit' && typeof label === 'string') hitHandlerRef.current(label, kind as Kind, value);
+      const { type, label, kind, value, isCheckbox } = ev.data ?? {};
+      if (type === 'hit' && typeof label === 'string') hitHandlerRef.current(label, kind as Kind, value, isCheckbox);
     };
     return () => channel.close();
   }, [automation.id]);
