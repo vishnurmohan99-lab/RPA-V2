@@ -39,6 +39,11 @@ export function LiveViewWindow({
   const [pendingField, setPendingField] = useState<{ label: string } | null>(null);
   const [pendingPassword, setPendingPassword] = useState(false);
   const [value, setValue] = useState('');
+  // A click round-trips through a real Playwright page on the server -- on a slow host (the free
+  // Render tier this was verified against can take several seconds under load) there's otherwise
+  // no feedback at all between the click and the overlay appearing, which reads as "nothing
+  // happened" even though it's just still working.
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     document.title = 'Atlas — Live view';
@@ -47,11 +52,12 @@ export function LiveViewWindow({
   }, [automationId]);
 
   const onClick = async (xPct: number, yPct: number) => {
-    // One question at a time -- without this, a click landing while an overlay is already open
-    // (e.g. the popup mid-navigation from the previous click) opened a second one on top of it,
+    // One question -- or one in-flight click -- at a time. Without the busy guard, a second
+    // click before the first's response landed could open a second overlay on top of the first,
     // both live at once, neither obviously the "current" one.
-    if (pendingField || pendingPassword) return;
-    const hit = await click(xPct, yPct);
+    if (pendingField || pendingPassword || busy) return;
+    setBusy(true);
+    const hit = await click(xPct, yPct).finally(() => setBusy(false));
     if (!hit) return;
     if (kind === 'browse' && hit.isPassword) {
       setPendingPassword(true);
@@ -92,6 +98,15 @@ export function LiveViewWindow({
         <BrowsePane screenshot={screenshot} connecting={!connected} error={null} url={url} recording onClick={onClick} onScroll={scroll} />
       ) : (
         <LiveBrowserPane screenshot={screenshot} highlight={highlight} logs={logs} picking onPick={onClick} onScroll={scroll} startUrl={url} />
+      )}
+
+      {busy && (
+        <div className="absolute inset-x-0 top-6 z-10 flex justify-center px-4">
+          <span className="flex items-center gap-2 rounded-full bg-ink/90 px-4 py-2 text-[12.5px] font-medium text-white">
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+            Reading the real page… (can take a few seconds)
+          </span>
+        </div>
       )}
 
       {pendingField && (
