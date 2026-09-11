@@ -351,9 +351,9 @@ export function useRunner(options: RunnerOptions) {
     } else {
       record('clean', narrate(summary(true)));
       saveMeta({ lastRun: nowLabel(), status: 'ready' });
-      const where = c.sentTo.length ? ` and sent it on to ${c.sentTo.join(' and ')}` : '';
+      const where = c.sentTo.length ? `, then sent it to ${c.sentTo.join(' and ')}` : '';
       setResult({
-        sentence: `Done. ${kept} rows totalling ${money(sum)} went into ${c.fileName ?? 'the file'}${where}. Nothing was written back into PracticeSuite.`,
+        sentence: `Done. I put ${kept} rows totalling ${money(sum)} into ${c.fileName ?? 'the file'}${where}. Nothing was written back into PracticeSuite.`,
         fileName: c.fileName,
       });
       setPhase('done');

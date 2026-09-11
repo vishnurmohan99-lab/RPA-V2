@@ -21,8 +21,10 @@ export function saveBlob(name: string, blob: Blob) {
 
 export const today = () => new Date().toISOString().slice(0, 10);
 
+/** "Billing share › statements-{date}.csv" gives the file name; a destination without one gets a plain default. */
 export function fileNameFor(destination: string): string {
-  const pattern = destination.split('›').pop()?.trim() || 'automation-{date}.csv';
+  const parts = destination.split('›');
+  const pattern = parts.length > 1 ? parts.pop()!.trim() : 'statements-{date}.csv';
   const name = pattern.includes('.') ? pattern : `${pattern}-{date}.csv`;
   return name.replace('{date}', today()).replace(/\s+/g, '-').toLowerCase();
 }

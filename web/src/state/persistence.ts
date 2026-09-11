@@ -1,5 +1,5 @@
 import { useEffect, useRef, type Dispatch } from 'react';
-import { api, Offline } from '../api/client';
+import { api } from '../api/client';
 import type { Action, State } from './store';
 
 /**
@@ -11,7 +11,7 @@ export function usePersistence(state: State, dispatch: Dispatch<Action>) {
   const knownRuns = useRef<Set<string>>(new Set());
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  const fail = (e: unknown) => dispatch({ type: 'saveState', save: e instanceof Offline ? 'offline' : 'offline' });
+  const fail = () => dispatch({ type: 'saveState', save: 'offline' });
 
   useEffect(() => {
     let cancelled = false;
@@ -33,8 +33,8 @@ export function usePersistence(state: State, dispatch: Dispatch<Action>) {
         dispatch({ type: 'hydrate', data });
         dispatch({ type: 'saveState', save: 'saved' });
         ready.current = true;
-      } catch (e) {
-        if (!cancelled) fail(e);
+      } catch {
+        if (!cancelled) fail();
       }
     })();
     return () => {
@@ -57,6 +57,13 @@ export function usePersistence(state: State, dispatch: Dispatch<Action>) {
   useEffect(() => debounce('automations', () => api.saveAutomations(state.automations)), [state.automations]);
   useEffect(() => debounce('rules', () => api.saveRules(state.rules)), [state.rules]);
   useEffect(() => debounce('signIns', () => api.saveSignIns(state.signIns)), [state.signIns]);
+
+  // A demo reset replaces the whole run history rather than adding to it.
+  useEffect(() => {
+    if (!ready.current || state.resets === 0) return;
+    knownRuns.current = new Set(state.history.map((r) => r.id));
+    debounce('history', () => api.saveHistory(state.history));
+  }, [state.resets]);
 
   useEffect(() => {
     if (!ready.current) return;

@@ -9,8 +9,7 @@ export type View =
   | { name: 'rules' }
   | { name: 'history'; runId?: string }
   | { name: 'files' }
-  | { name: 'signins' }
-  | { name: 'harness' };
+  | { name: 'signins' };
 
 export type SaveState = 'saved' | 'saving' | 'offline';
 
@@ -22,6 +21,8 @@ export interface State {
   history: RunRecord[];
   mutated: boolean;
   save: SaveState;
+  /** Bumped each time the demo is reset, so persistence can replace what the runner has saved. */
+  resets: number;
 }
 
 export type Action =
@@ -33,7 +34,8 @@ export type Action =
   | { type: 'addSignIn'; signIn: SignIn }
   | { type: 'addRun'; run: RunRecord }
   | { type: 'hydrate'; data: Partial<Pick<State, 'automations' | 'rules' | 'signIns' | 'history'>> }
-  | { type: 'saveState'; save: SaveState };
+  | { type: 'saveState'; save: SaveState }
+  | { type: 'reset' };
 
 export function initialState(): State {
   return {
@@ -44,6 +46,7 @@ export function initialState(): State {
     history: seedHistory(),
     mutated: false,
     save: 'saved',
+    resets: 0,
   };
 }
 
@@ -74,6 +77,8 @@ export function reducer(state: State, action: Action): State {
       return { ...state, ...action.data };
     case 'saveState':
       return { ...state, save: action.save };
+    case 'reset':
+      return { ...initialState(), save: state.save, resets: state.resets + 1 };
   }
 }
 

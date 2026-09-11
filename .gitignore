@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.tsbuildinfo
+.vercel/
 .env
 .env.*
 !.env.example
@@ -11,3 +12,5 @@ server/files/
 server/destinations/
 server/traces/
 server/.auth/
+
+.vercel
