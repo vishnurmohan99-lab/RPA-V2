@@ -255,7 +255,7 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
 
   const openLiveTab = useCallback(
     (idToOpen: string, kind: 'browse' | 'run') => {
-      const params = new URLSearchParams({ live: kind, id: idToOpen, url: automation.startUrl || 'https://example.com' });
+      const params = new URLSearchParams({ live: kind, id: idToOpen, url: automation.startUrl || 'https://example.com', automationId: automation.id });
       if (popupSignIn) {
         params.set('signInId', popupSignIn.id);
         params.set('signInLabel', popupSignIn.label);
@@ -287,15 +287,18 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
     onPick(label, kind, value);
   };
 
+  // Keyed by the workflow's own id (see channel.ts) and subscribed for as long as the builder
+  // tab is open on this workflow at all -- not scoped to activeLiveId, which is ephemeral and
+  // would otherwise leave a gap (a popup already open when the session underneath it restarts)
+  // where a real click in the popup silently reached nobody.
   useEffect(() => {
-    if (!activeLiveId) return;
-    const channel = new BroadcastChannel(liveChannelName(activeLiveId));
+    const channel = new BroadcastChannel(liveChannelName(automation.id));
     channel.onmessage = (ev) => {
       const { type, label, kind, value } = ev.data ?? {};
       if (type === 'hit' && typeof label === 'string') hitHandlerRef.current(label, kind as Kind, value);
     };
     return () => channel.close();
-  }, [activeLiveId]);
+  }, [automation.id]);
 
   const onReword = (text: string) => {
     if (!selected) return;

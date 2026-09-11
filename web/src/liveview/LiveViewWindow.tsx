@@ -10,7 +10,8 @@ import { type AttachKind, useAttachSession } from './useAttachSession';
  * watching, using the exact same `BrowsePane`/`LiveBrowserPane` components the builder tab
  * renders inline — only the data source differs (`useAttachSession` joins the existing session
  * instead of starting a new one). Every click here is resolved against the real page and posted
- * back to the opener over a BroadcastChannel keyed by the session id, so it becomes a step (or
+ * back to the opener over a BroadcastChannel keyed by the workflow's own id (stable for the
+ * popup's whole lifetime, unlike the browse/run session id — see channel.ts), so it becomes a step (or
  * answers a stop-and-ask "point at it") exactly as if the click had happened in the builder's
  * own pane — a click on a field (including a dropdown) pauses to ask what to type/choose right
  * here (and does it on the real page for real), instead of bouncing the question back to the
@@ -21,12 +22,14 @@ import { type AttachKind, useAttachSession } from './useAttachSession';
 export function LiveViewWindow({
   kind,
   id,
+  automationId,
   url,
   signInId,
   signInLabel,
 }: {
   kind: AttachKind;
   id: string;
+  automationId: string;
   url: string;
   signInId: string | null;
   signInLabel: string | null;
@@ -39,11 +42,15 @@ export function LiveViewWindow({
 
   useEffect(() => {
     document.title = 'Atlas — Live view';
-    channelRef.current = new BroadcastChannel(liveChannelName(id));
+    channelRef.current = new BroadcastChannel(liveChannelName(automationId));
     return () => channelRef.current?.close();
-  }, [id]);
+  }, [automationId]);
 
   const onClick = async (xPct: number, yPct: number) => {
+    // One question at a time -- without this, a click landing while an overlay is already open
+    // (e.g. the popup mid-navigation from the previous click) opened a second one on top of it,
+    // both live at once, neither obviously the "current" one.
+    if (pendingField || pendingPassword) return;
     const hit = await click(xPct, yPct);
     if (!hit) return;
     if (kind === 'browse' && hit.isPassword) {

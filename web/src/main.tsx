@@ -20,6 +20,7 @@ root.render(
       <LiveViewWindow
         kind={live}
         id={liveId}
+        automationId={params.get('automationId') ?? liveId}
         url={params.get('url') ?? ''}
         signInId={params.get('signInId') ?? null}
         signInLabel={params.get('signInLabel') ?? null}
