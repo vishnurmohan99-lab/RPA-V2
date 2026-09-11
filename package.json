@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "concurrently -n web,server -c teal,gray \"npm:dev -w web\" \"npm:dev -w server\"",
     "build": "npm run build -w web && npm run build -w server",
+    "start": "node server/dist/index.js",
     "test": "npm run test -w web && npm run test -w server"
   },
   "devDependencies": {

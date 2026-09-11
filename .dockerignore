@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.git
+.claude
+.env
+.env.*
+server/data
+server/files
+server/destinations
+server/traces
+server/.auth

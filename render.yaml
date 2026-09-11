@@ -1,0 +1,15 @@
+# Render blueprint: one Docker web service with a persistent disk for saved data and kept files.
+# Persistent disks need a paid instance type.
+services:
+  - type: web
+    name: atlas-automation
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: ATLAS_DATA_ROOT
+        value: /data
+    disk:
+      name: atlas-data
+      mountPath: /data
+      sizeGB: 1

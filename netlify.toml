@@ -1,0 +1,10 @@
+# Static demo only: the web app runs from built-in data and shows "Not saving right now".
+# Saving, run history on disk and the Files page need the server (see render.yaml / Dockerfile).
+[build]
+  command = "npm run build -w web"
+  publish = "web/dist"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
