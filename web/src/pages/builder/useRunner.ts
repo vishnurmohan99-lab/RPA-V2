@@ -4,8 +4,10 @@ import { ACTIONS, reword } from '../../domain/actions';
 import { isConfident, pct, resolveIn, type Match, type Resolution } from '../../domain/binder';
 import { parseCondition } from '../../domain/conditions';
 import { fileNameFor, saveBlob, toCsv } from '../../domain/csv';
+import { edgesOf, orderSteps } from '../../domain/flow';
 import { applyRules, money, total } from '../../domain/houseRules';
 import { narrate, type RunSummary } from '../../domain/narrative';
+import { doneLine, duration, line } from '../../domain/runlog';
 import {
   approveLabel,
   attentionQuestion,
@@ -20,7 +22,7 @@ import {
   sleep,
   TICK,
 } from '../../domain/runner';
-import type { Automation, HouseRuleState, RunRecord, ScreenId, Step } from '../../domain/types';
+import type { Automation, HouseRuleState, LogLine, LogTone, RunRecord, ScreenId, Step } from '../../domain/types';
 import type { RowMark, TenantHighlight } from '../../tenant/TenantFrame';
 
 export type RunMode = 'dry' | 'run';
@@ -28,6 +30,7 @@ export type Phase = 'idle' | 'running' | 'attention' | 'approval' | 'dryDone' | 
 export type StepState = 'active' | 'done' | 'attention' | 'previewed';
 
 export interface StopInfo {
+  /** Position in run order. */
   index: number;
   stepId: string;
   want: string;
@@ -58,6 +61,7 @@ export interface Approval {
 interface Ctx {
   mode: RunMode;
   runId: string;
+  startedAt: number;
   read: number;
   outOfScope: number;
   inScope: string[] | null;
@@ -72,6 +76,8 @@ interface Ctx {
   fileId: string | null;
   sentTo: string[];
   resumeAt: number;
+  done: number;
+  log: LogLine[];
 }
 
 export interface RunnerOptions {
@@ -87,6 +93,7 @@ export interface RunnerOptions {
 const freshCtx = (mode: RunMode): Ctx => ({
   mode,
   runId: `run-${Date.now().toString(36)}`,
+  startedAt: Date.now(),
   read: 0,
   outOfScope: 0,
   inScope: null,
@@ -101,9 +108,11 @@ const freshCtx = (mode: RunMode): Ctx => ({
   fileId: null,
   sentTo: [],
   resumeAt: 0,
+  done: 0,
+  log: [],
 });
 
-/** Drives an automation against the synthetic tenant, step by step, re-resolving every target by meaning. */
+/** Drives a workflow against the synthetic tenant in flow order, re-resolving every target by meaning. */
 export function useRunner(options: RunnerOptions) {
   const opt = useRef(options);
   opt.current = options;
@@ -123,6 +132,8 @@ export function useRunner(options: RunnerOptions) {
   const [result, setResult] = useState<{ sentence: string; fileName: string | null } | null>(null);
   const stopRef = useRef<StopInfo | null>(null);
   stopRef.current = stop;
+  const phaseRef = useRef<Phase>('idle');
+  phaseRef.current = phase;
 
   useEffect(
     () => () => {
@@ -131,11 +142,16 @@ export function useRunner(options: RunnerOptions) {
     [],
   );
 
+  /** Steps in the order a run takes them. */
+  const seq = () => orderSteps(opt.current.automation.steps, edgesOf(opt.current.automation));
+
+  const log = (text: string, tone: LogTone = 'ok') => ctx.current.log.push(line(text, tone));
+
   const mark = (id: string, s: StepState) => setStates((m) => ({ ...m, [id]: s }));
 
-  const patchStep = (index: number, patch: Partial<Step>, rewordIt = false) => {
+  const patchStep = (id: string, patch: Partial<Step>, rewordIt = false) => {
     const a = opt.current.automation;
-    const steps = a.steps.map((s, k) => (k === index ? (rewordIt ? reword({ ...s, ...patch }) : { ...s, ...patch }) : s));
+    const steps = a.steps.map((s) => (s.id === id ? (rewordIt ? reword({ ...s, ...patch }) : { ...s, ...patch }) : s));
     const next = { ...a, steps };
     opt.current = { ...opt.current, automation: next };
     opt.current.saveAutomation(next);
@@ -156,7 +172,7 @@ export function useRunner(options: RunnerOptions) {
 
   const keptTotal = () => total(keptIds().map((id) => RECORDS[id]).filter(Boolean));
 
-  const record = (outcome: RunRecord['outcome'], narrative: string) => {
+  const record = (outcome: RunRecord['outcome'], narrative: string, stepId: string | null = null) => {
     const c = ctx.current;
     const a = opt.current.automation;
     opt.current.addRun({
@@ -172,6 +188,11 @@ export function useRunner(options: RunnerOptions) {
       rowsHeld: c.held.length,
       fileProduced: c.mode === 'run' ? c.fileName : null,
       fileId: c.fileId,
+      log: [...c.log],
+      trigger: `Manual · ${a.createdBy}`,
+      duration: duration(Date.now() - c.startedAt),
+      stepsLine: `${c.done} of ${seq().length} steps`,
+      stepId,
     });
   };
 
@@ -195,6 +216,12 @@ export function useRunner(options: RunnerOptions) {
   const halt = (index: number, step: Step, res: Resolution<HTMLElement>) => {
     const best = res.best;
     mark(step.id, 'attention');
+    log(
+      best
+        ? `Only ${pct(best.s)}% sure that ${best.label} is the ${step.bind} — stopped and asked.`
+        : `Could not find ${step.bind} on the screen — stopped and asked.`,
+      'warn',
+    );
     setHighlight(best ? { label: best.label, kind: best.kind, tone: 'red', caption: `${best.label} · ${pct(best.s)}% sure` } : null);
     setStop({
       index,
@@ -207,7 +234,8 @@ export function useRunner(options: RunnerOptions) {
     setPhase('attention');
   };
 
-  async function perform(step: Step, best: Match<HTMLElement>, root: HTMLElement) {
+  /** Do an on-screen step against the element the binder matched. Returns the log line. */
+  async function perform(step: Step, best: Match<HTMLElement>, root: HTMLElement): Promise<string> {
     const c = ctx.current;
     switch (step.verb) {
       case 'open': {
@@ -216,7 +244,7 @@ export function useRunner(options: RunnerOptions) {
           opt.current.setScreen(target);
           await sleep(TICK);
         }
-        return;
+        return doneLine(step, { label: best.label });
       }
       case 'filter': {
         const vals = readColumn(root, best.label);
@@ -229,26 +257,27 @@ export function useRunner(options: RunnerOptions) {
         c.outOfScope += fail.length;
         setMarks((m) => ({ ...m, ...Object.fromEntries(fail.map((id) => [id, 'out' as RowMark])) }));
         setNotes((n) => ({ ...n, ...Object.fromEntries(fail.map((id) => [id, 'Out of scope'])) }));
-        return;
+        return doneLine(step, { label: best.label, count: pass.length });
       }
       case 'read': {
         const vals = readColumn(root, best.label);
         c.reads.set(best.label, vals);
         if (!c.read) c.read = vals.size;
-        return;
+        return doneLine(step, { label: best.label, count: (c.inScope ?? [...vals.keys()]).length, pct: pct(best.s) });
       }
       case 'table': {
-        if (!c.read) c.read = rowIds(root).length;
-        return;
+        const n = rowIds(root).length;
+        if (!c.read) c.read = n;
+        return doneLine(step, { label: best.label, count: n });
       }
       case 'type':
       case 'choose':
       case 'date': {
         if (best.el instanceof HTMLInputElement && !best.el.readOnly) best.el.value = step.value ?? '';
-        return;
+        return doneLine(step, { label: best.label });
       }
       default:
-        return;
+        return doneLine(step, { label: best.label });
     }
   }
 
@@ -279,7 +308,8 @@ export function useRunner(options: RunnerOptions) {
     }
   }
 
-  async function performEdge(step: Step, t: number) {
+  /** A step that leaves the browser. Only ever reached on a real run, after approval. Returns the log line. */
+  async function performEdge(step: Step, t: number): Promise<string> {
     const c = ctx.current;
     const a = opt.current.automation;
     switch (step.verb) {
@@ -298,19 +328,19 @@ export function useRunner(options: RunnerOptions) {
         } catch {
           c.fileId = null;
         }
-        return;
+        return doneLine(step, { file: name });
       }
       case 'saveTo': {
         const dest = step.value ?? 'Billing share';
         if (c.fileId) await api.sendFile(c.fileId, dest).catch(() => null);
         c.sentTo.push(dest);
-        return;
+        return doneLine(step, { dest });
       }
       case 'upload': {
         const dest = step.value ?? 'Statement vendor portal';
         opt.current.setScreen('upload');
         await sleep(TICK);
-        if (t !== token.current) return;
+        if (t !== token.current) return doneLine(step, { dest });
         const root = opt.current.getRoot();
         const res = root ? resolveIn(root, 'Statement file', ['upload']) : null;
         if (res?.best) {
@@ -329,10 +359,10 @@ export function useRunner(options: RunnerOptions) {
         setUploaded({ name: c.fileName ?? 'statements.csv', detail: `${keptIds().length} rows · ${money(keptTotal())}` });
         if (c.fileId) await api.sendFile(c.fileId, dest).catch(() => null);
         c.sentTo.push(dest);
-        return;
+        return doneLine(step, { dest });
       }
       default:
-        return;
+        return doneLine(step);
     }
   }
 
@@ -340,20 +370,23 @@ export function useRunner(options: RunnerOptions) {
     const c = ctx.current;
     const kept = keptIds().length;
     const sum = keptTotal();
+    const count = seq().length;
     if (c.mode === 'dry') {
+      log('Dry run finished — nothing left the browser.', 'info');
       record('preview', narrate(summary(false)));
       saveMeta({ lastRun: nowLabel(), cleanDryRun: true, status: 'ready' });
       setResult({
-        sentence: `I would put ${kept} rows totalling ${money(sum)} in the file. I'd skip ${c.skipped.length} by house rule and hold ${c.held.length} for you.`,
+        sentence: `Dry run: I would put ${kept} rows totalling ${money(sum)} in the file. I'd skip ${c.skipped.length} by house rule and hold ${c.held.length} for you.`,
         fileName: null,
       });
       setPhase('dryDone');
     } else {
+      log('Finished. Nothing was written back into PracticeSuite.', 'ok');
       record('clean', narrate(summary(true)));
       saveMeta({ lastRun: nowLabel(), status: 'ready' });
       const where = c.sentTo.length ? `, then sent it to ${c.sentTo.join(' and ')}` : '';
       setResult({
-        sentence: `Done. I put ${kept} rows totalling ${money(sum)} into ${c.fileName ?? 'the file'}${where}. Nothing was written back into PracticeSuite.`,
+        sentence: `Finished all ${count} steps. I put ${kept} rows totalling ${money(sum)} into ${c.fileName ?? 'the file'}${where}.`,
         fileName: c.fileName,
       });
       setPhase('done');
@@ -364,10 +397,11 @@ export function useRunner(options: RunnerOptions) {
 
   async function go(from: number) {
     const t = token.current;
+    const c = ctx.current;
     setPhase('running');
-    for (let i = from; i < opt.current.automation.steps.length; i++) {
+    for (let i = from; i < seq().length; i++) {
       if (t !== token.current) return;
-      const step = opt.current.automation.steps[i];
+      const step = seq()[i];
       const def = ACTIONS[step.verb];
       setActiveId(step.id);
       mark(step.id, 'active');
@@ -386,19 +420,22 @@ export function useRunner(options: RunnerOptions) {
         }
         const best = res.best!;
         setHighlight({ label: best.label, kind: best.kind, tone: 'teal', caption: `${best.label} · ${pct(best.s)}% sure` });
-        if (step.lastBoundTo !== best.label || step.confidence !== best.s) patchStep(i, { lastBoundTo: best.label, confidence: best.s });
-        await perform(step, best, root!);
+        if (step.lastBoundTo !== best.label || step.confidence !== best.s) patchStep(step.id, { lastBoundTo: best.label, confidence: best.s });
+        log(await perform(step, best, root!));
         await sleep(TICK);
       } else if (def.resolves === 'page') {
         setHighlight(null);
         if (step.verb === 'rules') {
           await applyHouseRules(t);
+          if (t !== token.current) return;
+          log(doneLine(step, { skipped: c.skipped.length, held: c.held.length }), 'info');
         } else if (step.verb === 'review') {
-          if (ctx.current.mode === 'run') {
+          if (c.mode === 'run') {
             mark(step.id, 'done');
-            ctx.current.resumeAt = i + 1;
-            const c = ctx.current;
-            const steps = opt.current.automation.steps;
+            c.done++;
+            c.resumeAt = i + 1;
+            log('Waiting for you to approve before anything leaves.', 'info');
+            const steps = seq();
             setApproval({
               read: c.read,
               outOfScope: c.outOfScope,
@@ -413,23 +450,29 @@ export function useRunner(options: RunnerOptions) {
             setPhase('approval');
             return;
           }
+          log('Would stop here to show you everything — dry run, so nothing is waiting.', 'info');
           await sleep(TICK);
         } else if (step.verb === 'pause') {
           await sleep(Math.min(Number(step.value) || 1, 3) * 1000);
+          log(doneLine(step), 'info');
         } else {
+          log(doneLine(step), 'info');
           await sleep(TICK / 2);
         }
       } else {
-        if (ctx.current.mode === 'dry') {
+        if (c.mode === 'dry') {
           mark(step.id, 'previewed');
+          c.done++;
+          log(`Dry run, so I did not do this: ${step.sentence}`, 'info');
           await sleep(TICK / 2);
           continue;
         }
-        await performEdge(step, t);
+        log(await performEdge(step, t));
         await sleep(TICK / 2);
       }
       if (t !== token.current) return;
       mark(step.id, 'done');
+      c.done++;
     }
     finish();
   }
@@ -452,7 +495,7 @@ export function useRunner(options: RunnerOptions) {
     setResult(null);
     clearView();
     setPhase('running');
-    if (opt.current.automation.steps[0]?.verb === 'open') opt.current.setScreen('patients');
+    if (seq()[0]?.verb === 'open') opt.current.setScreen('patients');
     await sleep(TICK / 2);
     go(0);
   };
@@ -461,9 +504,10 @@ export function useRunner(options: RunnerOptions) {
   const answer = (label: string) => {
     const s = stopRef.current;
     if (!s) return;
-    const step = opt.current.automation.steps[s.index];
+    const step = seq()[s.index];
     ctx.current.learned.push({ step: s.index + 1, from: step.bind ?? '', to: label });
-    patchStep(s.index, { bind: label, lastBoundTo: label, confidence: undefined }, true);
+    log(`You said ${label} is the ${step.bind}. Carrying on from step ${s.index + 1}.`, 'info');
+    patchStep(step.id, { bind: label, lastBoundTo: label, confidence: undefined }, true);
     setStop(null);
     go(s.index);
   };
@@ -471,9 +515,11 @@ export function useRunner(options: RunnerOptions) {
   const notNow = () => {
     const s = stopRef.current;
     if (!s) return;
+    log('Left it for later — waiting for you to point at the right thing.', 'info');
     record(
       'attention',
       narrate({ ...summary(false), stoppedAt: { step: s.index + 1, want: s.want, closest: s.best?.label ?? null, pct: pct(s.best?.s) } }),
+      s.stepId,
     );
     saveMeta({ status: 'attention', lastRun: nowLabel() });
     token.current++;
@@ -482,11 +528,13 @@ export function useRunner(options: RunnerOptions) {
   };
 
   const approve = () => {
+    log('You approved it.', 'ok');
     setApproval(null);
     go(ctx.current.resumeAt);
   };
 
   const decline = () => {
+    log('You did not approve it, so nothing left the browser.', 'info');
     record('stopped', narrate(summary(false)));
     token.current++;
     clearView();
@@ -494,7 +542,12 @@ export function useRunner(options: RunnerOptions) {
   };
 
   const cancel = () => {
+    const wasRunning = phaseRef.current === 'running' || phaseRef.current === 'attention' || phaseRef.current === 'approval';
     token.current++;
+    if (wasRunning) {
+      log('You stopped the run. Nothing left the browser.', 'info');
+      record('stopped', `You stopped the run after ${ctx.current.done} of ${seq().length} steps. Nothing left the browser and nothing was written back into PracticeSuite.`);
+    }
     clearView();
     setStates({});
     setMarks({});

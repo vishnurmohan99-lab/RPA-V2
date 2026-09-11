@@ -59,7 +59,7 @@ export function Files() {
               <thead>
                 <tr className="bg-canvas text-left text-xs font-semibold text-body">
                   <th className="px-6 py-3">File</th>
-                  <th className="px-4 py-3">Automation</th>
+                  <th className="px-4 py-3">Workflow</th>
                   <th className="px-4 py-3">Caught</th>
                   <th className="px-4 py-3">Size</th>
                   <th className="px-4 py-3">Sent to</th>

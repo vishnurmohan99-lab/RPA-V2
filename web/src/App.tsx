@@ -1,12 +1,12 @@
 import { Check, CloudOff, Loader2, RotateCcw, Shuffle } from 'lucide-react';
 import { useState } from 'react';
-import { AutomationsList } from './pages/AutomationsList';
 import { Builder } from './pages/builder/Builder';
 import { Files } from './pages/Files';
 import { HouseRules } from './pages/HouseRules';
+import { NewWorkflow } from './pages/NewWorkflow';
 import { RunHistory } from './pages/RunHistory';
-import { Setup } from './pages/Setup';
 import { SignIns } from './pages/SignIns';
+import { WorkflowsList } from './pages/WorkflowsList';
 import { usePersistence } from './state/persistence';
 import { Rail } from './shell/Rail';
 import { Button, Modal, Toggle } from './shell/ui';
@@ -39,7 +39,7 @@ function DemoBar() {
   const { state, dispatch } = useStore();
   const [confirmReset, setConfirmReset] = useState(false);
   return (
-    <div className="flex h-9 shrink-0 items-center justify-end gap-3 border-b border-line bg-white px-6 text-[13px]">
+    <div className="flex h-9 shrink-0 items-center justify-end gap-3 border-b border-line bg-white px-6 text-[12.5px]">
       <span className="text-muted">Synthetic practice · no live data</span>
       <span className="mr-auto pl-3">
         <SaveChip />
@@ -59,12 +59,15 @@ function DemoBar() {
         open={confirmReset}
         onClose={() => setConfirmReset(false)}
         title="Reset the demo?"
-        subtitle="Automations, house rules, sign-ins and run history go back to where they started, and the screen change is turned off. Kept files stay on this computer."
+        subtitle="Workflows, house rules, sign-ins and run history go back to where they started, and the screen change is turned off. Kept files stay on this computer."
         width={500}
       >
         <div className="flex justify-end gap-2">
-          <Button onClick={() => setConfirmReset(false)}>Keep things as they are</Button>
+          <Button size="sm" onClick={() => setConfirmReset(false)}>
+            Keep things as they are
+          </Button>
           <Button
+            size="sm"
             variant="primary"
             onClick={() => {
               setConfirmReset(false);
@@ -90,9 +93,9 @@ function Workspace() {
   const v = state.view;
   switch (v.name) {
     case 'list':
-      return <AutomationsList />;
+      return <WorkflowsList />;
     case 'setup':
-      return <Setup start={v.start} />;
+      return <NewWorkflow key={state.resets} />;
     case 'builder':
       return <Builder key={`${v.id}-${state.resets}`} id={v.id} start={v.start} />;
     case 'rules':

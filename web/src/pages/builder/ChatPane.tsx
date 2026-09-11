@@ -1,4 +1,3 @@
-import { ArrowUp, Sparkles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { parser, type PendingQuestion } from '../../domain/parser';
 import { HOLD_QUESTION } from '../../domain/parser/keywordParser';
@@ -6,52 +5,42 @@ import type { Step } from '../../domain/types';
 
 interface Msg {
   id: number;
-  from: 'you' | 'bot';
+  who: 'me' | 'ai';
   text: string;
 }
 
-const SUGGESTIONS = [
-  'open the balances screen, pull anyone over 30 days, skip payer 99999, export it to the billing share',
-  'actually leave out anyone on a payment plan',
+const PROMPTS = [
+  { label: 'Every Friday I pull balances over 30 days', text: 'open the balances screen, pull anyone over 30 days, skip payer 99999, export it to the billing share' },
+  { label: 'Leave out payment plans', text: 'actually leave out anyone on a payment plan' },
+  { label: 'Send them to the print vendor', text: 'download the export and upload it to the print vendor. show me first' },
 ];
 
-const GREETING: Record<string, string> = {
-  describe: 'Tell me what you do, the way you would explain it to someone new. I will write the steps.',
-  record: 'Click things on the screen the way you normally would. I will write each one down as a step.',
-  scratch: 'Add steps with the button in the middle, or tell me here and I will add them for you.',
-};
+const ME = 'max-w-[88%] self-end rounded-[12px_12px_4px_12px] bg-mint px-[13px] py-[11px] text-[13px] leading-[1.55] text-[#14312C]';
+const AI = 'max-w-[92%] rounded-[12px_12px_12px_4px] border border-[#F2F4F7] bg-canvas px-[13px] py-[11px] text-[13px] leading-[1.6] text-[#344054]';
 
-export function ChatPane({
-  steps,
-  onSteps,
-  start = 'describe',
-  disabled,
-}: {
-  steps: Step[];
-  onSteps: (steps: Step[], added: string[]) => void;
-  start?: string;
-  disabled?: boolean;
-}) {
-  const [msgs, setMsgs] = useState<Msg[]>([{ id: 0, from: 'bot', text: GREETING[start] ?? GREETING.describe }]);
-  const [text, setText] = useState('');
+/** The assistant column. Every message changes the flow; replies are short plain sentences. */
+export function ChatPane({ steps, onSteps, disabled }: { steps: Step[]; onSteps: (next: Step[], added: string[]) => void; disabled?: boolean }) {
+  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<PendingQuestion | null>(null);
   const [thinking, setThinking] = useState(false);
   const idRef = useRef(1);
-  const endRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const stepsRef = useRef(steps);
   stepsRef.current = steps;
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [msgs, thinking]);
 
-  const push = (from: Msg['from'], t: string) => setMsgs((m) => [...m, { id: idRef.current++, from, text: t }]);
+  const push = (who: Msg['who'], text: string) => setMsgs((m) => [...m, { id: idRef.current++, who, text }]);
 
   const send = (raw: string) => {
     const t = raw.trim();
-    if (!t || thinking) return;
-    push('you', t);
-    setText('');
+    if (!t || thinking || disabled) return;
+    push('me', t);
+    setDraft('');
     setThinking(true);
     setTimeout(() => {
       const before = stepsRef.current;
@@ -60,95 +49,63 @@ export function ChatPane({
         const old = new Set(before.map((s) => s.id));
         onSteps(res.steps, res.steps.filter((s) => !old.has(s.id)).map((s) => s.id));
       }
-      push('bot', res.reply);
+      push('ai', res.reply);
       setThinking(false);
       if (res.question === 'hold-5000') {
-        setTimeout(() => push('bot', HOLD_QUESTION), 700 + res.steps.length * 120);
+        setTimeout(() => push('ai', HOLD_QUESTION), 700);
         setPending('hold-5000');
       } else {
         setPending(null);
       }
-    }, 450);
+    }, 900);
   };
 
-  return (
-    <section className="flex min-h-0 flex-col rounded-card border border-line bg-white">
-      <div className="flex items-center gap-2 border-b border-line px-4 py-3">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-mint text-teal">
-          <Sparkles size={15} />
-        </div>
-        <div>
-          <div className="text-sm font-semibold text-ink">Assistant</div>
-          <div className="text-xs text-muted">Every message changes the steps</div>
-        </div>
-      </div>
+  const chips = pending === 'hold-5000' ? [{ label: 'Yes, hold them', text: 'Yes, hold them' }, { label: 'No', text: 'No' }] : PROMPTS;
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+  return (
+    <>
+      <div className="border-b border-line px-[18px] py-[13px] text-xs font-semibold text-body">Assistant</div>
+      <div ref={listRef} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-auto p-[18px]">
+        {msgs.length === 0 && <div className={AI}>Tell me what you do, the way you would explain it to someone new. Every message changes the flow.</div>}
         {msgs.map((m) => (
-          <div key={m.id} className={`flex ${m.from === 'you' ? 'justify-end' : ''}`}>
-            <div
-              className={`max-w-[85%] rounded-xl px-3 py-2 text-[13px] leading-relaxed ${
-                m.from === 'you' ? 'rounded-br-sm bg-teal text-white' : 'rounded-bl-sm bg-canvas text-ink ring-1 ring-line'
-              }`}
-            >
-              {m.text}
-            </div>
+          <div key={m.id} className={m.who === 'me' ? ME : AI}>
+            {m.text}
           </div>
         ))}
-        {thinking && (
-          <div className="flex gap-1 px-2 py-1">
-            {[0, 1, 2].map((i) => (
-              <span key={i} className="h-1.5 w-1.5 animate-pulse rounded-full bg-muted" style={{ animationDelay: `${i * 150}ms` }} />
-            ))}
-          </div>
-        )}
-        <div ref={endRef} />
+        {thinking && <div className={`${AI} w-fit animate-pulse text-muted`}>Writing the steps…</div>}
       </div>
-
-      {pending === 'hold-5000' && (
-        <div className="flex gap-2 px-4 pb-2">
-          {['Yes, hold them', 'No'].map((a) => (
-            <button key={a} onClick={() => send(a)} className="rounded-full border border-line px-3 py-1 text-xs font-medium text-ink hover:bg-canvas">
-              {a}
+      <div className="border-t border-line px-[18px] py-3.5">
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            send(draft);
+          }}
+        >
+          <input
+            value={draft}
+            disabled={disabled}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={disabled ? 'Wait for the run to finish…' : 'Describe what you do'}
+            className="min-w-0 flex-1 rounded-card border border-line px-3 py-2.5 text-[13px] text-ink placeholder:text-[#98A2B3] focus:border-teal focus:outline-none"
+          />
+          <button type="submit" disabled={disabled || !draft.trim()} className="rounded-card bg-teal px-3.5 py-2.5 text-[13px] font-semibold text-white disabled:opacity-50">
+            Send
+          </button>
+        </form>
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          {chips.map((c) => (
+            <button
+              key={c.label}
+              disabled={disabled}
+              onClick={() => send(c.text)}
+              className="rounded-full border border-line bg-white px-[11px] py-[5px] text-left text-[11.5px] text-body hover:border-teal hover:text-teal disabled:opacity-50"
+            >
+              {c.label}
             </button>
           ))}
         </div>
-      )}
-
-      {steps.length < 2 && !pending && (
-        <div className="space-y-1.5 px-4 pb-2">
-          <div className="text-[11px] font-medium text-muted">Try saying</div>
-          <button onClick={() => send(SUGGESTIONS[0])} className="block w-full rounded-card border border-dashed border-line px-3 py-2 text-left text-xs text-body hover:border-teal hover:bg-mint/40">
-            “{SUGGESTIONS[0]}”
-          </button>
-        </div>
-      )}
-
-      <form
-        className="flex items-end gap-2 border-t border-line p-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          send(text);
-        }}
-      >
-        <textarea
-          value={text}
-          disabled={disabled}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              send(text);
-            }
-          }}
-          rows={2}
-          placeholder={disabled ? 'Wait for the run to finish…' : 'Tell me what to change…'}
-          className="min-h-[44px] flex-1 resize-none rounded-input border border-line px-3 py-2 text-[13px] text-ink placeholder:text-muted focus:border-teal focus:outline-none"
-        />
-        <button type="submit" aria-label="Send" disabled={!text.trim() || disabled} className="flex h-9 w-9 items-center justify-center rounded-full bg-teal text-white disabled:opacity-40">
-          <ArrowUp size={16} />
-        </button>
-      </form>
-    </section>
+      </div>
+    </>
   );
 }

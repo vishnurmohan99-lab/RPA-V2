@@ -1,5 +1,5 @@
-import { ChevronLeft, ChevronRight, Landmark, Lock, Receipt, RotateCw, Users } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Landmark, Receipt, Users } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Kind, ScreenId } from '../domain/types';
 import { MedicalCross } from '../shell/Rail';
 import { BalancesScreen } from './BalancesScreen';
@@ -35,6 +35,8 @@ export interface TenantProps extends ScreenProps {
   onNavigate?: (screen: ScreenId) => void;
   /** Receives the element the binder searches: the whole synthetic tenant, nav included. */
   rootRef?: (el: HTMLDivElement | null) => void;
+  /** Shown at the right of the address bar, e.g. "Live view" or "Recording". */
+  badge?: ReactNode;
 }
 
 export const SCREEN_URL: Record<ScreenId, string> = {
@@ -84,13 +86,13 @@ function ensureVisible(el: HTMLElement, scroller: HTMLElement) {
 }
 
 const TONE: Record<Tone, { border: string; fill: string; tag: string }> = {
-  teal: { border: 'border-teal', fill: 'bg-teal/5', tag: 'bg-teal text-white' },
-  red: { border: 'border-red', fill: 'bg-red/5', tag: 'bg-red text-white' },
-  amber: { border: 'border-amber', fill: 'bg-amber/5', tag: 'bg-amber text-white' },
+  teal: { border: 'border-teal', fill: 'bg-teal/5 shadow-[0_0_0_4px_rgba(14,124,107,0.12)]', tag: 'bg-teal text-white' },
+  red: { border: 'border-red', fill: 'bg-red/5 shadow-[0_0_0_4px_rgba(180,35,24,0.12)]', tag: 'bg-red text-white' },
+  amber: { border: 'border-amber', fill: 'bg-amber/5 shadow-[0_0_0_4px_rgba(181,71,8,0.12)]', tag: 'bg-amber text-white' },
 };
 
 export function TenantFrame(props: TenantProps) {
-  const { screen, highlight, mode = 'normal', pickKinds, onPick, onNavigate, rootRef, ...screenProps } = props;
+  const { screen, highlight, mode = 'normal', pickKinds, onPick, onNavigate, rootRef, badge, ...screenProps } = props;
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [box, setBox] = useState<Box | null>(null);
@@ -169,22 +171,15 @@ export function TenantFrame(props: TenantProps) {
   const inPS = screen !== 'upload' && screen !== 'signin';
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-card border border-line bg-white shadow-sm">
-      <div className="flex items-center gap-2 border-b border-line bg-canvas px-3 py-2">
-        <div className="flex gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-[#F97066]" />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#FDB022]" />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#32D583]" />
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-line bg-white">
+      <div className="flex items-center gap-2.5 border-b border-line bg-[#FCFCFD] px-3.5 py-2.5">
+        <div className="flex gap-[5px]">
+          {[0, 1, 2].map((i) => (
+            <span key={i} className="block h-[9px] w-[9px] rounded-full bg-line" />
+          ))}
         </div>
-        <div className="ml-2 flex items-center gap-1 text-muted">
-          <ChevronLeft size={15} />
-          <ChevronRight size={15} />
-          <RotateCw size={13} />
-        </div>
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1 text-xs text-body">
-          <Lock size={11} className="shrink-0 text-muted" />
-          <span className="truncate">https://{SCREEN_URL[screen]}</span>
-        </div>
+        <div className="min-w-0 flex-1 truncate rounded-md bg-[#F2F4F7] px-2.5 py-[5px] text-[11.5px] text-muted">https://{SCREEN_URL[screen]}</div>
+        {badge}
       </div>
 
       <div
@@ -206,7 +201,7 @@ export function TenantFrame(props: TenantProps) {
                 data-kind="nav"
                 title={label}
                 onClick={() => onNavigate?.(s)}
-                className={`flex h-8 w-8 items-center justify-center rounded-md ${s === screen ? 'bg-mint text-teal' : 'text-muted hover:bg-canvas'}`}
+                className={`flex h-8 w-8 items-center justify-center rounded-md ${s === screen ? 'bg-mint text-teal' : 'text-muted hover:bg-canvas'} ${picking ? 'outline-dashed outline-1 -outline-offset-2 outline-[#9ED4C9]' : ''}`}
               >
                 <Icon size={16} strokeWidth={1.8} />
               </button>
@@ -227,7 +222,7 @@ export function TenantFrame(props: TenantProps) {
             <div className={`h-full w-full rounded-md border-2 ${TONE[highlight.tone].border} ${TONE[highlight.tone].fill}`} />
             {highlight.caption && (
               <div
-                className={`absolute left-0 whitespace-nowrap rounded px-2 py-0.5 text-[11px] font-semibold ${TONE[highlight.tone].tag} ${box.top < 28 ? 'top-full mt-1' : '-top-6'}`}
+                className={`absolute right-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[10.5px] font-bold ${TONE[highlight.tone].tag} ${box.top < 28 ? 'top-full mt-1' : '-top-6'}`}
               >
                 {highlight.caption}
               </div>

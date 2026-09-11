@@ -7,6 +7,8 @@ export type ScreenId = 'signin' | 'patients' | 'balances' | 'payments' | 'upload
 
 export interface ActionDef {
   label: string;
+  /** Short uppercase tag shown on the flow node, e.g. "Read" or "Catch the file". */
+  tag: string;
   resolves: Resolves;
   /** Which kinds of element this action may bind to. Empty for page / edge actions. */
   kinds: Kind[];
@@ -23,8 +25,22 @@ export interface Step {
   value?: string;
   lastBoundTo?: string;
   confidence?: number;
-  /** Screen the step expects to be on, so "show me" can jump there. */
+  /** Screen the step expects to be on, so selecting it can jump there. */
   screen?: ScreenId;
+  /** Overrides the action's tag, e.g. "Then" / "Otherwise" under a split. */
+  tag?: string;
+  /** Position on the flow canvas. */
+  x?: number;
+  y?: number;
+  /** Diane dragged this node, so automatic layout leaves it where she put it. */
+  moved?: boolean;
+}
+
+/** A wire on the flow canvas. Runs follow the first path, or the "Yes" path after a split. */
+export interface Edge {
+  a: string;
+  b: string;
+  label?: string;
 }
 
 export type AutomationStatus = 'ready' | 'attention' | 'never';
@@ -38,6 +54,7 @@ export interface Automation {
   destination: string;
   screen: ScreenId;
   steps: Step[];
+  edges?: Edge[];
   status: AutomationStatus;
   lastRun: string;
   cleanDryRun?: boolean;
@@ -63,7 +80,15 @@ export interface SignIn {
   user: string;
 }
 
-export type RunOutcome = 'clean' | 'attention' | 'stopped' | 'preview' | 'change';
+export type RunOutcome = 'clean' | 'attention' | 'stopped' | 'preview' | 'change' | 'failed';
+
+export type LogTone = 'ok' | 'warn' | 'err' | 'info';
+
+export interface LogLine {
+  t: string;
+  text: string;
+  tone: LogTone;
+}
 
 export interface RunRecord {
   id: string;
@@ -78,6 +103,12 @@ export interface RunRecord {
   rowsHeld: number;
   fileProduced: string | null;
   fileId?: string | null;
+  log?: LogLine[];
+  trigger?: string;
+  duration?: string;
+  stepsLine?: string;
+  /** The step a run stopped on, so "Open the step" can take Diane straight there. */
+  stepId?: string | null;
 }
 
 export interface Destination {

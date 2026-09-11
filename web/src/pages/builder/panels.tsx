@@ -1,94 +1,112 @@
-import { AlertTriangle, CheckCircle2, Circle, Crosshair, FlaskConical, MousePointerClick, ShieldCheck } from 'lucide-react';
-import { useState } from 'react';
-import { pct, type Match } from '../../domain/binder';
+import { useEffect, useState } from 'react';
+import { ACTIONS } from '../../domain/actions';
+import { pct, THRESHOLD, type Match } from '../../domain/binder';
 import { money } from '../../domain/houseRules';
+import type { Step } from '../../domain/types';
 import { Button, Modal } from '../../shell/ui';
-import type { Approval, StopInfo } from './useRunner';
+import type { Approval, Phase, RunMode, StopInfo } from './useRunner';
 
-export function InspectBar({
-  match,
-  picking,
-  onPointAt,
-  onCancelPick,
-}: {
-  match: Match<HTMLElement> | null | undefined;
+const PRIMARY = 'rounded-card bg-teal px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-teal-dark disabled:opacity-50';
+const SECONDARY = 'rounded-card border border-line bg-white px-3.5 py-2 text-[12.5px] text-[#344054] hover:bg-canvas disabled:opacity-50';
+
+export function RunBar(p: {
+  phase: Phase;
+  mode: RunMode;
+  total: number;
+  done: number;
+  current: Step | null;
+  stop: StopInfo | null;
+  result: { sentence: string } | null;
   picking: boolean;
-  onPointAt: () => void;
-  onCancelPick: () => void;
+  onStop: () => void;
+  onYes: () => void;
+  onPoint: () => void;
+  onNotNow: () => void;
+  onClose: () => void;
+  onLogs: () => void;
 }) {
-  if (picking) {
-    return (
-      <div className="flex items-center gap-3 rounded-card border border-teal bg-mint px-4 py-3 text-sm text-ink">
-        <Crosshair size={18} className="text-teal" />
-        <span className="flex-1">Click the right thing on the screen. I will remember it.</span>
-        <Button size="sm" variant="ghost" onClick={onCancelPick}>
-          Cancel
-        </Button>
-      </div>
-    );
-  }
-  if (match === undefined) return null;
-  if (match && match.s >= 0.75) {
-    return (
-      <div className="flex items-center gap-3 rounded-card border border-line bg-white px-4 py-3 text-sm">
-        <CheckCircle2 size={18} className="shrink-0 text-teal" />
-        <span className="flex-1 text-ink">
-          This step points at <b>{match.label}</b>. {pct(match.s)}% sure.
-        </span>
-        <Button size="sm" variant="ghost" onClick={onPointAt}>
-          Point at something else
-        </Button>
-      </div>
-    );
-  }
+  if (p.phase === 'idle') return null;
+  const blocked = p.phase === 'attention';
+  const finished = p.phase === 'done';
+  const dryDone = p.phase === 'dryDone';
+  const tone = blocked ? 'border-[#FEDF89] bg-[#FFFAEB]' : finished ? 'border-[#ABEFC6] bg-[#ECFDF3]' : 'border-line bg-white';
+  const done = finished || dryDone ? p.total : p.done;
+
+  let msg: string;
+  if (blocked && p.stop) msg = `Stopped at step ${p.stop.index + 1} — not sure enough about “${p.stop.want}”.`;
+  else if (p.phase === 'approval') msg = 'Waiting for you to approve before anything leaves the browser.';
+  else if ((finished || dryDone) && p.result) msg = p.result.sentence;
+  else msg = `${p.mode === 'dry' ? 'Dry run · ' : ''}Running step ${Math.min(p.done + 1, p.total)} of ${p.total}${p.current ? ` — ${p.current.sentence}` : ''}`;
+
   return (
-    <div className="flex items-center gap-3 rounded-card border border-red/30 bg-red-bg px-4 py-3 text-sm">
-      <AlertTriangle size={18} className="shrink-0 text-red" />
-      <span className="flex-1 text-ink">
-        {match ? (
-          <>
-            I'm only {pct(match.s)}% sure. That's not enough to act on. The closest thing is <b>{match.label}</b>.
-          </>
-        ) : (
-          <>I can't find this on the screen.</>
+    <div className={`flex animate-card-in flex-wrap items-center gap-3.5 rounded-[10px] border px-[15px] py-[13px] ${tone}`}>
+      <div className="min-w-0 flex-[1_1_260px]">
+        <div className={`text-[12.5px] font-semibold leading-normal ${blocked ? 'text-[#7A4A08]' : finished ? 'text-[#067647]' : 'text-ink'}`}>{msg}</div>
+        {blocked && p.stop && (
+          <div className="mt-1 text-[12.5px] leading-normal text-[#7A4A08]">
+            {p.picking ? 'Click the right thing in the page below.' : p.stop.question} Nothing was read and nothing was saved.
+          </div>
         )}
-      </span>
-      <Button size="sm" variant="primary" onClick={onPointAt}>
-        <Crosshair size={14} /> Point at it
-      </Button>
+        {dryDone && <div className="mt-1 text-xs text-muted">Preview only. Nothing downloaded and nothing left the browser.</div>}
+        <div className="mt-[9px] h-[5px] overflow-hidden rounded-full bg-[#F2F4F7]">
+          <div
+            className={`h-full rounded-full transition-[width] duration-[400ms] ${blocked ? 'bg-[#DC9A15]' : 'bg-teal'}`}
+            style={{ width: `${p.total ? (done / p.total) * 100 : 0}%` }}
+          />
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {blocked && !p.picking && p.stop?.best && (
+          <button className={PRIMARY} onClick={p.onYes}>
+            Yes, that's it
+          </button>
+        )}
+        {blocked && !p.picking && (
+          <button className={p.stop?.best ? SECONDARY : PRIMARY} onClick={p.onPoint}>
+            Point at it
+          </button>
+        )}
+        {blocked && !p.picking && (
+          <button className={SECONDARY} onClick={p.onNotNow}>
+            Not now
+          </button>
+        )}
+        {(p.phase === 'running' || p.phase === 'approval') && (
+          <button className={SECONDARY} onClick={p.onStop}>
+            Stop
+          </button>
+        )}
+        {finished && (
+          <button className={SECONDARY} onClick={p.onLogs}>
+            Run logs
+          </button>
+        )}
+        {(finished || dryDone) && (
+          <button className={SECONDARY} onClick={p.onClose}>
+            Close
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
-export function RecordBar({
-  prompt,
-  onStop,
-  onPrompt,
-  onCancelPrompt,
-}: {
-  prompt: string | null;
-  onStop: () => void;
-  onPrompt: (value: string) => void;
-  onCancelPrompt: () => void;
-}) {
+export function RecordStrip({ prompt, onDone, onPrompt, onCancelPrompt }: { prompt: string | null; onDone: () => void; onPrompt: (v: string) => void; onCancelPrompt: () => void }) {
   const [value, setValue] = useState('');
   return (
-    <div className="rounded-card border border-red/30 bg-white px-4 py-2.5">
-      <div className="flex items-center gap-3 text-sm">
-        <span className="relative flex h-3 w-3">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red/40" />
-          <Circle size={12} className="relative fill-red text-red" />
-        </span>
-        <span className="flex-1 text-ink">
-          <b>Recording.</b> Click things on the screen the way you normally would.
-        </span>
-        <Button size="sm" onClick={onStop}>
-          Stop recording
-        </Button>
+    <div className="animate-card-in rounded-[10px] border border-[#ABEFC6] bg-[#F6FBFA] px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="block h-[7px] w-[7px] animate-pulse rounded-full bg-[#D92D20]" />
+        <div className="flex-[1_1_220px] text-[12.5px] leading-normal text-[#35544E]">
+          Recording — click the controls or a column heading below and each click lands in the flow as a step.
+        </div>
+        <button className={PRIMARY} onClick={onDone}>
+          Done recording
+        </button>
       </div>
       {prompt && (
         <form
-          className="mt-2 flex items-center gap-2"
+          className="mt-2.5 flex flex-wrap items-center gap-2"
           onSubmit={(e) => {
             e.preventDefault();
             if (value.trim()) {
@@ -97,87 +115,218 @@ export function RecordBar({
             }
           }}
         >
-          <MousePointerClick size={16} className="text-teal" />
-          <span className="text-sm text-ink">What should I type into {prompt}?</span>
-          <input autoFocus value={value} onChange={(e) => setValue(e.target.value)} className="min-w-0 flex-1 rounded-input border border-line px-2 py-1 text-sm focus:border-teal focus:outline-none" />
-          <Button size="sm" variant="primary" type="submit">
+          <span className="text-[12.5px] text-ink">What should I type into {prompt}?</span>
+          <input
+            autoFocus
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="min-w-0 flex-1 rounded-card border border-line px-3 py-1.5 text-[13px] focus:border-teal focus:outline-none"
+          />
+          <button type="submit" className={PRIMARY}>
             Add
-          </Button>
-          <Button size="sm" variant="ghost" type="button" onClick={onCancelPrompt}>
+          </button>
+          <button type="button" className={SECONDARY} onClick={onCancelPrompt}>
             Skip
-          </Button>
+          </button>
         </form>
       )}
     </div>
   );
 }
 
-export function AttentionPanel({ stop, onYes, onPoint, onNotNow }: { stop: StopInfo; onYes: () => void; onPoint: () => void; onNotNow: () => void }) {
-  return (
-    <div className="animate-card-in rounded-card border border-red/30 bg-white shadow-lift">
-      <div className="flex items-center gap-2 border-b border-line bg-red-bg px-4 py-2.5">
-        <AlertTriangle size={16} className="text-red" />
-        <span className="text-sm font-semibold text-red">Needs attention · step {stop.index + 1}</span>
-        <span className="ml-auto text-xs text-body">I stopped on purpose. Nothing was read and nothing was saved.</span>
+/** The panel under the browser: what the selected step points at, how sure, and how to fix it. */
+export function AdjustPanel({
+  step,
+  match,
+  picking,
+  saved,
+  locked,
+  onPointAt,
+  onCancelPick,
+  onReword,
+  onValue,
+}: {
+  step: Step | null;
+  match: Match<HTMLElement> | null | undefined;
+  picking: boolean;
+  saved: boolean;
+  locked: boolean;
+  onPointAt: () => void;
+  onCancelPick: () => void;
+  onReword: (text: string) => void;
+  onValue: (value: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [value, setValue] = useState('');
+  useEffect(() => {
+    setEditing(false);
+    setValue('');
+  }, [step?.id]);
+
+  const card = 'rounded-[10px] border border-line bg-white p-[18px]';
+
+  if (!step) {
+    return (
+      <div className="rounded-[10px] border border-dashed border-line bg-white p-[18px] text-[12.5px] leading-[1.6] text-muted">
+        Click a step to jump the browser to that moment. If the step points at something on the page, I'll draw a box around it and tell you how sure I am.
       </div>
-      <div className="grid gap-4 px-4 py-3 md:grid-cols-[auto_1fr]">
-        <div>
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">This step expected</div>
-          <span className="inline-block rounded-full bg-canvas px-2.5 py-1 text-[13px] font-medium text-ink ring-1 ring-line">{stop.want}</span>
-          <div className="mt-2 text-xs text-muted">{stop.best ? `${pct(stop.best.s)}% sure of the closest match` : 'No close match'}</div>
+    );
+  }
+
+  if (picking) {
+    return (
+      <div className={card}>
+        <div className="text-[13.5px] font-semibold text-ink">Click the thing you mean.</div>
+        <div className="mt-2 text-[12.5px] leading-[1.6] text-muted">Everything outlines as you move over it. One click is enough — I'll rewrite the sentence.</div>
+        <div className="mt-3.5 flex gap-2">
+          <button className={SECONDARY} onClick={onCancelPick}>
+            Cancel
+          </button>
         </div>
-        <div>
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">On the screen now</div>
-          <div className="flex flex-wrap gap-1.5">
-            {stop.labels.map((l) => {
-              const closest = l === stop.best?.label;
-              return (
-                <span key={l} className={`rounded-full px-2.5 py-1 text-[13px] ${closest ? 'bg-red-bg font-semibold text-red ring-1 ring-red/40' : 'bg-white text-body ring-1 ring-line'}`}>
-                  {l}
-                  {closest && <span className="ml-1 text-[10px] uppercase">closest</span>}
-                </span>
-              );
-            })}
-          </div>
-        </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-3">
-        <p className="mr-auto text-[15px] font-medium text-ink">{stop.question}</p>
-        {stop.best && (
-          <Button variant="primary" size="sm" onClick={onYes}>
-            Yes, that's it
-          </Button>
-        )}
-        <Button size="sm" onClick={onPoint}>
-          <Crosshair size={14} /> Point at it
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onNotNow}>
-          Not now
-        </Button>
-      </div>
+    );
+  }
+
+  const def = ACTIONS[step.verb];
+  const onScreen = def.resolves === 'screen';
+
+  const sentence = editing ? (
+    <textarea
+      autoFocus
+      rows={2}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      className="w-full resize-none rounded-card border border-teal px-3 py-2 text-[13.5px] font-semibold text-ink focus:outline-none"
+    />
+  ) : (
+    <div className="text-[13.5px] font-semibold leading-normal text-ink">{step.sentence || 'This step does not point at anything yet.'}</div>
+  );
+
+  const actions = (primaryPoint: boolean) => (
+    <div className="mt-3.5 flex flex-wrap gap-2">
+      {onScreen && !editing && (
+        <button disabled={locked} className={primaryPoint ? PRIMARY : SECONDARY} onClick={onPointAt}>
+          Point at it
+        </button>
+      )}
+      {!editing && step.sentence && (
+        <button
+          disabled={locked}
+          className={SECONDARY}
+          onClick={() => {
+            setDraft(step.sentence);
+            setEditing(true);
+          }}
+        >
+          Reword this step
+        </button>
+      )}
+      {editing && (
+        <>
+          <button
+            className={PRIMARY}
+            onClick={() => {
+              onReword(draft);
+              setEditing(false);
+            }}
+          >
+            Save wording
+          </button>
+          <button className={SECONDARY} onClick={() => setEditing(false)}>
+            Cancel
+          </button>
+        </>
+      )}
     </div>
   );
-}
 
-export function ResultPanel({ tone, title, sentence, note, onClose, action }: { tone: 'dry' | 'done'; title: string; sentence: string; note: string; onClose: () => void; action?: React.ReactNode }) {
-  return (
-    <div className="animate-card-in rounded-card border border-line bg-white px-4 py-3 shadow-lift">
-      <div className="flex items-start gap-3">
-        <div className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${tone === 'dry' ? 'bg-canvas text-body ring-1 ring-line' : 'bg-mint text-teal'}`}>
-          {tone === 'dry' ? <FlaskConical size={16} /> : <ShieldCheck size={16} />}
+  const valueForm =
+    def.needsValue && !step.value && !locked ? (
+      <form
+        className="mt-3 flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (value.trim()) onValue(value.trim());
+        }}
+      >
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={def.valueHint}
+          className="min-w-0 flex-1 rounded-card border border-line px-3 py-2 text-[13px] focus:border-teal focus:outline-none"
+        />
+        <button type="submit" className={PRIMARY}>
+          Add
+        </button>
+      </form>
+    ) : null;
+
+  const savedChip = saved ? (
+    <div className="mt-3 inline-flex animate-card-in items-center gap-[7px] rounded-full border border-[#ABEFC6] bg-[#ECFDF3] px-3 py-[5px] text-xs font-semibold text-[#067647]">✓ Saved</div>
+  ) : null;
+
+  if (!onScreen) {
+    return (
+      <div className={card}>
+        {sentence}
+        <div className="mt-2 text-[12.5px] leading-[1.6] text-muted">
+          This step doesn't point at anything on the page — it happens to the page or to the file, so there's nothing to draw a box around.
         </div>
-        <div className="flex-1">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted">{title}</div>
-          <p className="mt-0.5 text-[15px] leading-snug text-ink">{sentence}</p>
-          <p className="mt-1 text-xs text-muted">{note}</p>
-        </div>
-        <div className="flex gap-2">
-          {action}
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            Close
-          </Button>
-        </div>
+        {savedChip}
+        {valueForm}
+        {actions(false)}
       </div>
+    );
+  }
+
+  if (!step.bind) {
+    return (
+      <div className={card}>
+        {sentence}
+        <div className="mt-2 text-[12.5px] leading-[1.6] text-muted">Click “Point at it”, then click the right thing in the page above.</div>
+        {actions(true)}
+      </div>
+    );
+  }
+
+  if (match === undefined) {
+    return (
+      <div className={card}>
+        {sentence}
+        <div className="mt-2 text-[12.5px] text-muted">Checking the page…</div>
+        {savedChip}
+        {valueForm}
+        {actions(false)}
+      </div>
+    );
+  }
+
+  if (!match) {
+    return (
+      <div className={card}>
+        {sentence}
+        <div className="mt-2 text-[12.5px] leading-[1.6] text-[#7A4A08]">I can't find {step.bind} on this page, so this step would stop the run and ask you.</div>
+        {actions(true)}
+      </div>
+    );
+  }
+
+  const good = match.s >= THRESHOLD;
+  return (
+    <div className={card}>
+      {sentence}
+      <div className="mb-2 mt-3.5 h-1.5 overflow-hidden rounded-full bg-[#F2F4F7]">
+        <div className={`h-full rounded-full transition-[width] duration-300 ${good ? 'bg-teal' : 'bg-[#DC9A15]'}`} style={{ width: `${pct(match.s)}%` }} />
+      </div>
+      <div className={`text-[12.5px] leading-[1.6] ${good ? 'text-[#35544E]' : 'text-[#7A4A08]'}`}>
+        {good
+          ? `This step points at ${match.label}. ${pct(match.s)}% sure — the name and the kind of thing both match.`
+          : `I'm only ${pct(match.s)}% sure that's ${match.label}. That's not enough to act on, so this step would stop the run and ask you.`}
+      </div>
+      {savedChip}
+      {valueForm}
+      {actions(!good)}
     </div>
   );
 }
@@ -193,12 +342,12 @@ export function ApprovalModal({ approval, onApprove, onDecline }: { approval: Ap
     <Modal open onClose={onDecline} title="Before anything leaves" subtitle="Here is what I would do. Nothing has left the browser yet." width={600} hints={[['Esc', 'Not yet']]}>
       <div className="rounded-card border border-line">
         {rows.map(([l, n]) => (
-          <div key={l} className="flex justify-between border-b border-line px-4 py-2 text-sm">
+          <div key={l} className="flex justify-between border-b border-line px-4 py-2 text-[13px]">
             <span className="text-body">{l}</span>
             <span className="font-medium tabular-nums text-ink">{n}</span>
           </div>
         ))}
-        <div className="flex justify-between bg-canvas px-4 py-2.5 text-sm">
+        <div className="flex justify-between bg-canvas px-4 py-2.5 text-[13px]">
           <span className="font-semibold text-ink">Rows in the file</span>
           <span className="font-semibold tabular-nums text-ink">
             {approval.kept} · {money(approval.total)}
@@ -208,15 +357,15 @@ export function ApprovalModal({ approval, onApprove, onDecline }: { approval: Ap
 
       {approval.held.length > 0 && (
         <div className="mt-4">
-          <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">Waiting for you</div>
-          <table className="w-full overflow-hidden rounded-card text-sm ring-1 ring-line">
+          <div className="mb-1.5 text-[10.5px] font-bold uppercase tracking-[0.04em] text-muted">Waiting for you</div>
+          <table className="w-full overflow-hidden rounded-card text-[13px] ring-1 ring-line">
             <tbody>
               {approval.held.map((h) => (
                 <tr key={h.id} className="border-b border-line last:border-0">
                   <td className="px-3 py-2 text-ink">{h.name}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink">{h.amount}</td>
                   <td className="px-3 py-2 text-right">
-                    <span className="rounded-full bg-amber-bg px-2 py-0.5 text-xs font-medium text-amber">{h.why}</span>
+                    <span className="rounded-full border border-[#FEDF89] bg-[#FFFAEB] px-2 py-0.5 text-[11.5px] font-semibold text-[#B54708]">{h.why}</span>
                   </td>
                 </tr>
               ))}
@@ -226,14 +375,14 @@ export function ApprovalModal({ approval, onApprove, onDecline }: { approval: Ap
         </div>
       )}
 
-      <div className="mt-4 rounded-card border border-amber/30 bg-amber-bg px-4 py-3">
-        <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber">What happens after you approve</div>
-        <ul className="space-y-0.5 text-sm text-ink">
+      <div className="mt-4 rounded-card border border-[#FEDF89] bg-[#FFFAEB] px-4 py-3">
+        <div className="mb-1 text-[10.5px] font-bold uppercase tracking-[0.04em] text-[#B54708]">What happens after you approve</div>
+        <ul className="space-y-0.5 text-[13px] text-ink">
           {approval.edges.map((e, i) => (
             <li key={i}>· {e}</li>
           ))}
         </ul>
-        <p className="mt-2 text-[13px] leading-relaxed text-body">
+        <p className="mt-2 text-[12.5px] leading-relaxed text-body">
           This file contains patient information. Once it is {approval.uploads ? 'uploaded' : 'saved'} it exists outside PracticeSuite. Nothing is written back into the system either way.
         </p>
       </div>

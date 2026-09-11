@@ -1,6 +1,7 @@
 import { makeStep } from './actions';
+import { chain } from './flow';
 import { DEFAULT_RULES } from './houseRules';
-import type { Automation, BalanceRow, Destination, EraRow, HouseRuleState, RunRecord, SignIn } from './types';
+import type { Automation, BalanceRow, Destination, EraRow, HouseRuleState, RunRecord, SignIn, Step } from './types';
 
 export const BALANCES: BalanceRow[] = [
   { id: 'A-10442', account: 'A-10442', patient: 'Marta Reyes', payer: 'Aetna', balance: 240.0, age: 45, plan: 'No' },
@@ -55,9 +56,11 @@ export const DESTINATIONS: Destination[] = [
   { id: 'vendor-portal', label: 'Statement vendor portal', kind: 'web' },
 ];
 
+const withFlow = (a: Omit<Automation, 'edges'> & { steps: Step[] }): Automation => ({ ...a, edges: chain(a.steps) });
+
 export function seedAutomations(): Automation[] {
   return [
-    {
+    withFlow({
       id: 'auto-friday-statements',
       name: 'Friday patient statements',
       createdBy: 'Diane Keller',
@@ -78,8 +81,8 @@ export function seedAutomations(): Automation[] {
         makeStep('download', null),
         makeStep('saveTo', null, 'Billing share'),
       ],
-    },
-    {
+    }),
+    withFlow({
       id: 'auto-era-posting',
       name: 'ERA posting prep',
       createdBy: 'Diane Keller',
@@ -99,8 +102,8 @@ export function seedAutomations(): Automation[] {
         makeStep('download', null),
         makeStep('saveTo', null, 'Posting folder'),
       ],
-    },
-    {
+    }),
+    withFlow({
       id: 'auto-vendor-upload',
       name: 'Send statements to the print vendor',
       createdBy: 'Diane Keller',
@@ -109,7 +112,7 @@ export function seedAutomations(): Automation[] {
       destination: 'Statement vendor portal',
       screen: 'balances',
       status: 'never',
-      lastRun: '—',
+      lastRun: 'Never run',
       steps: [
         makeStep('open', 'Balances', undefined, { screen: 'balances' }),
         makeStep('filter', 'Age (days)', 'is over 30', { screen: 'balances' }),
@@ -119,7 +122,7 @@ export function seedAutomations(): Automation[] {
         makeStep('download', null),
         makeStep('upload', null, 'Statement vendor portal'),
       ],
-    },
+    }),
   ];
 }
 
@@ -142,6 +145,14 @@ export function seedHistory(): RunRecord[] {
       rowsSkipped: 0,
       rowsHeld: 0,
       fileProduced: null,
+      trigger: 'Manual · Diane Keller',
+      duration: '3s',
+      stepsLine: '1 of 8 steps',
+      log: [
+        { t: '09:30:02', text: 'Opened the Payments screen.', tone: 'ok' },
+        { t: '09:30:04', text: 'Only 58% sure which column is the Check # — stopped and asked.', tone: 'warn' },
+        { t: '09:30:05', text: 'Left it for later — waiting for you to point at the right thing.', tone: 'info' },
+      ],
     },
     {
       id: 'run-seed-1',
@@ -156,6 +167,21 @@ export function seedHistory(): RunRecord[] {
       rowsSkipped: 5,
       rowsHeld: 1,
       fileProduced: 'statements-2026-09-05.csv',
+      trigger: 'Manual · Diane Keller',
+      duration: '1m 41s',
+      stepsLine: '8 of 8 steps',
+      log: [
+        { t: '16:12:02', text: 'Opened the Balances screen.', tone: 'ok' },
+        { t: '16:12:04', text: 'Kept rows where Age (days) is over 30 — 11 left.', tone: 'ok' },
+        { t: '16:12:05', text: 'Read the Balance column — 11 rows, 96% sure.', tone: 'ok' },
+        { t: '16:12:07', text: 'Applied house rules — 5 skipped, 1 held for you.', tone: 'info' },
+        { t: '16:12:08', text: 'Waiting for you to approve before anything leaves.', tone: 'info' },
+        { t: '16:13:40', text: 'You approved it.', tone: 'ok' },
+        { t: '16:13:41', text: 'Clicked Export.', tone: 'ok' },
+        { t: '16:13:42', text: 'Caught statements-2026-09-05.csv.', tone: 'ok' },
+        { t: '16:13:43', text: 'Saved it to Billing share.', tone: 'ok' },
+        { t: '16:13:43', text: 'Finished. Nothing was written back into PracticeSuite.', tone: 'ok' },
+      ],
     },
   ];
 }

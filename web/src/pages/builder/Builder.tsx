@@ -1,17 +1,20 @@
-import { AlertTriangle, ArrowLeft, Circle, FlaskConical, Play, Square } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ACTIONS, makeStep, reword } from '../../domain/actions';
 import { isConfident, pct, resolveIn, SCORES, type Match } from '../../domain/binder';
+import { addBranch, edgesOf, insertAfter, layout, orderSteps, removeNode, syncOrder, type Graph } from '../../domain/flow';
+import { parser } from '../../domain/parser';
 import { recordStep } from '../../domain/recorder';
 import type { Automation, Kind, ScreenId, Step } from '../../domain/types';
 import { useStore } from '../../state/store';
 import { useToast } from '../../shell/Toast';
-import { Button, Modal, StatusPill } from '../../shell/ui';
+import { Button, Modal } from '../../shell/ui';
 import { TenantFrame, type TenantHighlight } from '../../tenant/TenantFrame';
 import { ChatPane } from './ChatPane';
-import { ApprovalModal, AttentionPanel, InspectBar, RecordBar, ResultPanel } from './panels';
+import { FlowCanvas, type PlusMenu } from './FlowCanvas';
+import { ManualPicker } from './ManualPicker';
+import { AdjustPanel, ApprovalModal, RecordStrip, RunBar } from './panels';
 import { PreflightProbe } from './Preflight';
-import { StepList } from './StepList';
+import { RunLogs } from './RunLogs';
 import { useRunner } from './useRunner';
 
 type Start = 'describe' | 'record' | 'scratch';
@@ -22,9 +25,9 @@ export function Builder({ id, start }: { id: string; start?: Start }) {
   if (!automation) {
     return (
       <div className="p-10 text-body">
-        That automation is not here any more.{' '}
+        That workflow is not here any more.{' '}
         <button className="font-semibold text-teal" onClick={() => dispatch({ type: 'go', view: { name: 'list' } })}>
-          Back to automations
+          Back to workflows
         </button>
       </div>
     );
@@ -34,9 +37,13 @@ export function Builder({ id, start }: { id: string; start?: Start }) {
 
 type Pick = { for: 'step'; id: string } | { for: 'stop' } | null;
 
+const HEADER_BTN = 'rounded-card border border-line bg-white px-3.5 py-2 text-[12.5px] text-body hover:bg-canvas disabled:opacity-50';
+
 function BuilderInner({ automation, start }: { automation: Automation; start?: Start }) {
   const { state, dispatch } = useStore();
   const toast = useToast();
+  const [tab, setTab] = useState<'steps' | 'logs'>('steps');
+  const [mode, setMode] = useState<'ai' | 'manual'>(start === 'scratch' ? 'manual' : 'ai');
   const [screen, setScreen] = useState<ScreenId>(start === 'record' ? 'patients' : automation.screen);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [root, setRootState] = useState<HTMLDivElement | null>(null);
@@ -49,19 +56,33 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
   const [pick, setPick] = useState<Pick>(null);
   const [recording, setRecording] = useState(start === 'record');
   const [recordPrompt, setRecordPrompt] = useState<string | null>(null);
+  const [insertAt, setInsertAt] = useState<string | null>(null);
+  const [plusMenu, setPlusMenu] = useState<PlusMenu | null>(null);
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const [failing, setFailing] = useState<string[]>([]);
   const [confirmRun, setConfirmRun] = useState(false);
-  const [runIn, setRunIn] = useState<'screen' | 'browser'>('screen');
+  const [savedPill, setSavedPill] = useState(false);
+  const [savedStep, setSavedStep] = useState<string | null>(null);
 
   const save = useCallback((a: Automation) => dispatch({ type: 'upsertAutomation', automation: a }), [dispatch]);
   const latest = useRef(automation);
   latest.current = automation;
-  const setSteps = (steps: Step[]) => save({ ...latest.current, steps });
+  const graph = (): Graph => ({ steps: latest.current.steps, edges: edgesOf(latest.current) });
+  const commit = (g: Graph) => save({ ...latest.current, steps: layout(g.steps, g.edges), edges: g.edges });
+  const patch = (id: string, fn: (s: Step) => Step) => save({ ...latest.current, steps: latest.current.steps.map((s) => (s.id === id ? fn(s) : s)) });
   const markFresh = (ids: string[]) => {
     setFresh(new Set(ids));
     setTimeout(() => setFresh(new Set()), 400 + ids.length * 160);
   };
+
+  const edges = edgesOf(automation);
+  const ordered = orderSteps(automation.steps, edges);
+
+  // Older workflows have no wires or positions yet: give them a straight flow on first open.
+  useEffect(() => {
+    if (!automation.edges || automation.steps.some((s) => s.x === undefined)) commit(graph());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const runner = useRunner({
     automation,
@@ -72,14 +93,14 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
     saveAutomation: save,
     addRun: (r) => dispatch({ type: 'addRun', run: r }),
   });
+  const running = runner.busy;
 
   const selected = automation.steps.find((s) => s.id === selectedId) ?? null;
 
-  // Intervene: show what the selected step points at, before any run.
+  // Selecting a step jumps the browser to its screen and checks what it points at, before any run.
   const [inspect, setInspect] = useState<Match<HTMLElement> | null | undefined>(undefined);
   useEffect(() => {
-    if (runner.phase !== 'idle' && runner.phase !== 'dryDone' && runner.phase !== 'done') return setInspect(undefined);
-    if (!selected || ACTIONS[selected.verb].resolves !== 'screen' || !selected.bind) return setInspect(undefined);
+    if (running || !selected || ACTIONS[selected.verb].resolves !== 'screen' || !selected.bind) return setInspect(undefined);
     if (selected.verb !== 'open' && selected.screen && selected.screen !== screen) {
       setScreen(selected.screen);
       return;
@@ -87,37 +108,82 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
     if (!root) return;
     const t = setTimeout(() => setInspect(resolveIn(root, selected.bind!, ACTIONS[selected.verb].kinds).best), 40);
     return () => clearTimeout(t);
-  }, [selected?.id, selected?.bind, selected?.verb, screen, state.mutated, root, runner.phase]);
-
-  const running = runner.phase !== 'idle' && runner.phase !== 'dryDone' && runner.phase !== 'done';
+  }, [selected?.id, selected?.bind, selected?.verb, screen, state.mutated, root, running]);
 
   const highlight: TenantHighlight | null = running
     ? runner.highlight
     : inspect
-      ? { label: inspect.label, kind: inspect.kind, tone: isConfident(inspect) ? 'teal' : 'red', caption: `${inspect.label} · ${pct(inspect.s)}% sure` }
+      ? { label: inspect.label, kind: inspect.kind, tone: isConfident(inspect) ? 'teal' : 'amber', caption: `${pct(inspect.s)}% sure` }
       : null;
 
+  const stopStep = runner.stop ? (ordered[runner.stop.index] ?? null) : null;
   const pickKinds: Kind[] | undefined =
     pick?.for === 'step'
       ? ACTIONS[automation.steps.find((s) => s.id === pick.id)?.verb ?? 'click'].kinds
-      : pick?.for === 'stop' && runner.stop
-        ? ACTIONS[automation.steps[runner.stop.index].verb].kinds
+      : pick?.for === 'stop' && stopStep
+        ? ACTIONS[stopStep.verb].kinds
         : undefined;
+
+  const place = (step: Step) => {
+    const g = graph();
+    commit(insertAfter(g.steps, g.edges, insertAt, step));
+    setInsertAt(step.id);
+    setSelectedId(step.id);
+    markFresh([step.id]);
+  };
+
+  const split = (afterId: string | null) => {
+    const gate = makeStep('branch', null, 'Balance is over $25');
+    const yes = makeStep('note', null, 'Send the statement.', { tag: 'Then' });
+    const no = makeStep('note', null, 'Skip this patient and note why.', { tag: 'Otherwise' });
+    const g = graph();
+    commit(addBranch(g.steps, g.edges, afterId, gate, yes, no));
+    setSelectedId(gate.id);
+    setInsertAt(yes.id);
+    setPlusMenu(null);
+    markFresh([gate.id, yes.id, no.id]);
+  };
+
+  const addVerb = (verb: string) => {
+    if (verb === 'branch') return split(insertAt ?? ordered[ordered.length - 1]?.id ?? null);
+    const def = ACTIONS[verb];
+    const step = def.resolves === 'screen' ? { ...makeStep(verb, null, undefined, { screen }), sentence: '' } : makeStep(verb, null);
+    place(step);
+    if (def.resolves === 'screen') {
+      setRecording(false);
+      setPick({ for: 'step', id: step.id });
+    }
+  };
+
+  const remove = (id: string) => {
+    const g = graph();
+    commit(removeNode(g.steps, g.edges, id));
+    if (selectedId === id) setSelectedId(null);
+    if (insertAt === id) setInsertAt(null);
+  };
+
+  const selectStep = (id: string | null) => {
+    setPlusMenu(null);
+    setPick(null);
+    setSavedStep(null);
+    if (runner.phase === 'dryDone' || runner.phase === 'done') runner.dismiss();
+    setSelectedId(id);
+    if (id) setInsertAt(id);
+  };
 
   const onPick = (label: string, kind: Kind) => {
     if (pick?.for === 'stop') {
       setPick(null);
       runner.answer(label);
-      toast.show('Saved');
+      toast.show('Saved. Carrying on');
       return;
     }
     if (pick?.for === 'step') {
-      const step = latest.current.steps.find((s) => s.id === pick.id);
+      const id = pick.id;
       setPick(null);
-      if (!step) return;
-      setSteps(latest.current.steps.map((s) => (s.id === step.id ? reword({ ...s, bind: label, lastBoundTo: label, confidence: SCORES.exact, screen: s.verb === 'open' ? s.screen : screen }) : s)));
-      setSelectedId(step.id);
-      toast.show('Saved');
+      patch(id, (s) => reword({ ...s, bind: label, lastBoundTo: label, confidence: SCORES.exact, screen: s.verb === 'open' ? s.screen : screen }));
+      setSelectedId(id);
+      setSavedStep(id);
       return;
     }
     if (recording) {
@@ -126,217 +192,292 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
         return;
       }
       const step = recordStep(label, kind, screen);
-      setSteps([...latest.current.steps, step]);
-      markFresh([step.id]);
+      place(step);
       if ((kind === 'nav' || kind === 'screen') && step.screen) setScreen(step.screen);
     }
   };
 
-  const onAdd = (verb: string) => {
-    const def = ACTIONS[verb];
-    const step = def.resolves === 'screen' ? { ...makeStep(verb, null, undefined, { screen }), sentence: '' } : makeStep(verb, null);
-    setSteps([...latest.current.steps, step]);
-    markFresh([step.id]);
-    setSelectedId(step.id);
-    if (def.resolves === 'screen') setPick({ for: 'step', id: step.id });
+  const onReword = (text: string) => {
+    if (!selected) return;
+    const t = text.trim();
+    if (!t || t === selected.sentence) return;
+    const guess = parser.parse(t, []).steps.filter((s) => s.verb === selected.verb);
+    patch(selected.id, (s) => (guess.length === 1 ? reword({ ...s, bind: guess[0].bind ?? s.bind, value: guess[0].value ?? s.value }) : { ...s, sentence: t }));
+    setSavedStep(selected.id);
   };
 
-  const showMe = (id: string) => {
+  const clearForRun = () => {
     setPick(null);
-    if (!running && runner.phase !== 'idle') runner.dismiss();
-    setSelectedId(id);
+    setRecording(false);
+    setPlusMenu(null);
+    setSelectedId(null);
   };
 
   const run = () => {
-    setPick(null);
-    setRecording(false);
-    setSelectedId(null);
+    clearForRun();
     if (!automation.cleanDryRun) setConfirmRun(true);
     else runner.start('run');
   };
 
   const dry = () => {
-    setPick(null);
-    setRecording(false);
-    setSelectedId(null);
+    clearForRun();
     runner.start('dry');
   };
 
-  const mode = pick ? 'pick' : recording && !running ? 'record' : 'normal';
+  const saveNow = () => {
+    save({ ...latest.current });
+    setSavedPill(true);
+    setTimeout(() => setSavedPill(false), 2200);
+  };
+
+  const openStep = (stepId: string | null) => {
+    setTab('steps');
+    selectStep(stepId && automation.steps.some((s) => s.id === stepId) ? stepId : (failing[0] ?? ordered.find((s) => ACTIONS[s.verb].resolves === 'screen')?.id ?? null));
+  };
+
+  const n = automation.steps.length;
+  const selIdx = selected ? ordered.findIndex((s) => s.id === selected.id) : -1;
+  const stepCountLine =
+    n === 0
+      ? 'No steps yet'
+      : `${n} ${n === 1 ? 'step' : 'steps'} · ${selected ? (selIdx >= 0 ? `checking step ${selIdx + 1}` : 'checking a step off the main path') : 'nothing selected'}`;
+  const insertIdx = insertAt ? ordered.findIndex((s) => s.id === insertAt) : -1;
+  const insertNote = insertIdx >= 0 ? `Lands after step ${insertIdx + 1}` : 'Lands at the end of the flow';
+  const doneCount = Object.values(runner.states).filter((s) => s === 'done' || s === 'previewed').length;
+  const current = ordered.find((s) => s.id === runner.activeId) ?? null;
+  const runs = state.history.filter((r) => r.automationId === automation.id);
+
+  const frameMode = pick ? 'pick' : recording && !running ? 'record' : 'normal';
+  const badge = pick ? (
+    <span className="whitespace-nowrap text-[11.5px] font-semibold text-amber">Picking mode</span>
+  ) : recording && !running ? (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-[#FECDCA] bg-[#FEF3F2] px-[9px] py-[3px] text-[11px] font-bold text-[#B42318]">
+      <span className="block h-[7px] w-[7px] animate-pulse rounded-full bg-[#D92D20]" />
+      Recording
+    </span>
+  ) : (
+    <span className="whitespace-nowrap text-[11.5px] font-semibold text-teal">Live view</span>
+  );
+
+  const flowHeader = (
+    <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-line bg-white px-[18px] py-[13px]">
+      <div className="text-xs font-semibold text-body">Flow</div>
+      {failing.length > 0 && !running ? (
+        <button onClick={() => selectStep(failing[0])} className="text-xs font-semibold text-amber hover:underline">
+          The screen has changed — {failing.length === 1 ? '1 step needs' : `${failing.length} steps need`} a look
+        </button>
+      ) : (
+        <div className="text-xs text-[#98A2B3]">Drag to move · + to add a step · ⑂ to split</div>
+      )}
+    </div>
+  );
+
+  const empty = (
+    <div className="max-w-[300px] rounded-[10px] border border-dashed border-[#D0D5DD] bg-white p-[22px] text-center text-[12.5px] leading-[1.6] text-muted">
+      No steps yet. Describe what you do on the left, or switch to adding them yourself — each one lands here as a node you can drag.
+      <div className="mt-3 flex justify-center gap-2">
+        <button className="rounded-card border border-line px-3 py-1.5 text-xs font-semibold text-[#344054] hover:bg-canvas" onClick={() => setMode('manual')}>
+          Add steps myself
+        </button>
+        <button
+          className="rounded-card border border-line px-3 py-1.5 text-xs font-semibold text-teal hover:bg-canvas"
+          onClick={() => {
+            setPick(null);
+            setRecording(true);
+          }}
+        >
+          Click the interface
+        </button>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="flex h-[calc(100vh-37px)] flex-col">
-      {/* top bar */}
-      <div className="flex items-center gap-3 border-b border-line bg-white px-5 py-3">
-        <button aria-label="Back to automations" onClick={() => dispatch({ type: 'go', view: { name: 'list' } })} className="rounded-md p-1.5 text-muted hover:bg-canvas">
-          <ArrowLeft size={18} />
-        </button>
-        <input
-          value={automation.name}
-          onChange={(e) => save({ ...automation, name: e.target.value })}
-          aria-label="Automation name"
-          className="min-w-0 max-w-sm flex-1 rounded-input border border-transparent px-2 py-1 text-lg font-semibold text-ink hover:border-line focus:border-teal focus:outline-none"
-        />
-        <StatusPill status={automation.status} />
-        <div className="ml-auto flex items-center gap-2">
-          <label className="flex items-center gap-2 text-[13px] text-body">
-            Run in
-            <select value={runIn} onChange={(e) => setRunIn(e.target.value as 'screen' | 'browser')} className="rounded-input border border-line bg-white px-2 py-1.5 text-[13px] text-ink">
-              <option value="screen">This screen</option>
-              <option value="browser" disabled>
-                Real browser (needs the runner)
-              </option>
-            </select>
-          </label>
-          <Button
-            size="sm"
-            variant={recording ? 'secondary' : 'ghost'}
-            disabled={running}
-            onClick={() => {
-              setPick(null);
-              setRecording((r) => !r);
-            }}
-          >
-            <Circle size={12} className={recording ? 'fill-red text-red' : 'text-red'} />
-            {recording ? 'Recording' : 'Show me how'}
-          </Button>
+    <div className="flex min-h-full flex-col bg-canvas">
+      <div className="px-6 pt-[18px]">
+        <div className="flex flex-wrap items-center gap-3">
+          <button onClick={() => dispatch({ type: 'go', view: { name: 'list' } })} className="rounded-card border border-line bg-white px-3 py-[7px] text-[12.5px] text-body hover:bg-canvas">
+            ← Workflows
+          </button>
+          <div className="min-w-0 flex-1">
+            <input
+              value={automation.name}
+              onChange={(e) => save({ ...automation, name: e.target.value })}
+              aria-label="Workflow name"
+              className="-ml-1 w-full max-w-md rounded-md border border-transparent bg-transparent px-1 text-[17px] font-bold text-ink hover:border-line focus:border-teal focus:bg-white focus:outline-none"
+            />
+            <div className="mt-0.5 text-[12.5px] text-muted">{stepCountLine}</div>
+          </div>
+          {tab === 'steps' && (
+            <button className={HEADER_BTN} disabled={running} onClick={() => setMode((m) => (m === 'ai' ? 'manual' : 'ai'))}>
+              {mode === 'ai' ? 'Add steps myself' : 'Ask the assistant'}
+            </button>
+          )}
+          {savedPill && (
+            <span className="inline-flex animate-card-in items-center gap-1.5 rounded-full border border-[#ABEFC6] bg-[#ECFDF3] px-[11px] py-[5px] text-[11.5px] font-semibold text-[#067647]">
+              ✓ Saved
+            </span>
+          )}
+          <button className={`${HEADER_BTN} font-semibold text-[#344054]`} onClick={saveNow}>
+            Save
+          </button>
           {running ? (
-            <Button size="sm" onClick={runner.cancel}>
-              <Square size={13} /> Stop
-            </Button>
+            <button className={HEADER_BTN} onClick={runner.cancel}>
+              Stop
+            </button>
           ) : (
             <>
-              <Button size="sm" onClick={dry} disabled={automation.steps.length === 0}>
-                <FlaskConical size={14} /> Dry run
-              </Button>
-              <Button size="sm" variant="primary" onClick={run} disabled={automation.steps.length === 0}>
-                <Play size={14} /> Run
-              </Button>
+              <button className={HEADER_BTN} disabled={n === 0} onClick={dry}>
+                Dry run
+              </button>
+              <button className="rounded-card bg-teal px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-teal-dark disabled:opacity-50" disabled={n === 0} onClick={run}>
+                Run
+              </button>
             </>
           )}
         </div>
+        <div className="mt-4 flex gap-[22px] border-b border-line">
+          {(['steps', 'logs'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`bg-transparent px-0.5 pb-3 pt-2.5 text-[13px] font-semibold ${tab === t ? 'text-teal shadow-[inset_0_-2px_0_0_#0E7C6B]' : 'text-muted'}`}
+            >
+              {t === 'steps' ? 'Steps' : 'Run logs'}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(240px,300px)_minmax(300px,380px)_minmax(520px,1fr)] gap-4 overflow-x-auto bg-canvas p-4">
-        <ChatPane
-          steps={automation.steps}
-          start={start}
-          disabled={running}
-          onSteps={(steps, added) => {
-            setSteps(steps);
-            markFresh(added);
-          }}
-        />
-
-        <section className="flex min-h-0 flex-col rounded-card border border-line bg-white">
-          <div className="border-b border-line px-4 py-3">
-            <div className="text-sm font-semibold text-ink">Steps</div>
-            <div className="text-xs text-muted">One sentence each. Drag to reorder, click to see what it points at.</div>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            {failing.length > 0 && !running && (
-              <div className="mb-3 flex items-start gap-2 rounded-card border border-amber/30 bg-amber-bg px-3 py-2.5 text-[13px] text-ink">
-                <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber" />
-                <div className="flex-1">
-                  The screen has changed since this was built. {failing.length === 1 ? '1 step needs' : `${failing.length} steps need`} a look.
-                  <button className="ml-1 font-semibold text-amber underline" onClick={() => showMe(failing[0])}>
-                    Show me
-                  </button>
-                </div>
-              </div>
+      {tab === 'logs' ? (
+        <RunLogs runs={runs} onOpenStep={openStep} />
+      ) : (
+        <div className="grid flex-1 grid-cols-[minmax(240px,340px)_minmax(0,1fr)]">
+          <div className="flex h-[560px] min-w-0 flex-col border-r border-line bg-white">
+            {mode === 'ai' ? (
+              <ChatPane
+                steps={ordered}
+                disabled={running}
+                onSteps={(next, added) => {
+                  const g = graph();
+                  commit(syncOrder(g.steps, g.edges, next));
+                  markFresh(added);
+                }}
+              />
+            ) : (
+              <ManualPicker insertNote={insertNote} onPick={addVerb} disabled={running} />
             )}
-            {automation.steps.length === 0 && (
-              <div className="mb-3 rounded-card border border-dashed border-line px-4 py-6 text-center text-[13px] text-muted">
-                No steps yet. Describe what you do, click “Show me how”, or add a step.
-              </div>
-            )}
-            <StepList
-              steps={automation.steps}
-              onChange={setSteps}
-              selectedId={selectedId}
-              onSelect={showMe}
-              onShowMe={showMe}
-              onAdd={onAdd}
-              states={runner.states}
-              activeId={runner.activeId}
-              fresh={fresh}
-              failing={new Set(failing)}
-              locked={running}
-              onToast={toast.show}
-              pickerOpen={start === 'scratch'}
-            />
-          </div>
-        </section>
-
-        <section className="flex min-h-0 flex-col gap-3">
-          {recording && !running && <RecordBar prompt={recordPrompt} onStop={() => setRecording(false)} onCancelPrompt={() => setRecordPrompt(null)} onPrompt={(v) => {
-            const step = recordStep(recordPrompt!, 'field', screen, v);
-            setSteps([...latest.current.steps, step]);
-            markFresh([step.id]);
-            setRecordPrompt(null);
-          }} />}
-          <div className="min-h-0 flex-1">
-            <TenantFrame
-              screen={screen}
-              mutated={state.mutated}
-              highlight={highlight}
-              mode={mode}
-              pickKinds={pickKinds}
-              onPick={onPick}
-              onNavigate={setScreen}
-              rootRef={setRoot}
-              rowMarks={runner.marks}
-              rowNotes={runner.notes}
-              uploaded={runner.uploaded}
-            />
           </div>
 
-          {runner.phase === 'attention' && runner.stop && !pick && (
-            <AttentionPanel
+          <FlowCanvas
+            steps={automation.steps}
+            edges={edges}
+            ordered={ordered}
+            selectedId={selectedId}
+            states={runner.states}
+            activeId={runner.activeId}
+            phase={runner.phase}
+            failing={new Set(failing)}
+            fresh={fresh}
+            locked={running}
+            plusMenu={plusMenu}
+            header={flowHeader}
+            empty={empty}
+            onSelect={selectStep}
+            onRemove={remove}
+            onMove={(id, x, y) => patch(id, (s) => ({ ...s, x, y, moved: true }))}
+            onPlus={setPlusMenu}
+            onBranch={split}
+            onPlusManual={() => {
+              setMode('manual');
+              setInsertAt(plusMenu?.afterId ?? null);
+              setRecording(false);
+              setPlusMenu(null);
+            }}
+            onPlusRecord={() => {
+              setInsertAt(plusMenu?.afterId ?? null);
+              setPick(null);
+              setSelectedId(null);
+              setRecording(true);
+              setPlusMenu(null);
+            }}
+            onPlusClose={() => setPlusMenu(null)}
+          />
+
+          <div className="col-span-2 flex flex-col gap-3.5 bg-[#F2F4F7] p-4">
+            <RunBar
+              phase={runner.phase}
+              mode={runner.mode}
+              total={ordered.length}
+              done={doneCount}
+              current={current}
               stop={runner.stop}
+              result={runner.result}
+              picking={pick?.for === 'stop'}
+              onStop={runner.cancel}
               onYes={() => {
-                runner.answer(runner.stop!.best!.label);
+                if (runner.stop?.best) runner.answer(runner.stop.best.label);
                 toast.show('Saved. Carrying on');
               }}
               onPoint={() => setPick({ for: 'stop' })}
               onNotNow={runner.notNow}
+              onClose={runner.dismiss}
+              onLogs={() => {
+                runner.dismiss();
+                setTab('logs');
+              }}
             />
-          )}
-
-          {(pick || (!running && selected && runner.phase === 'idle')) && (
-            <InspectBar
-              match={pick ? null : inspect}
+            {recording && !running && (
+              <RecordStrip
+                prompt={recordPrompt}
+                onDone={() => {
+                  setRecording(false);
+                  setRecordPrompt(null);
+                }}
+                onCancelPrompt={() => setRecordPrompt(null)}
+                onPrompt={(v) => {
+                  place(recordStep(recordPrompt!, 'field', screen, v));
+                  setRecordPrompt(null);
+                }}
+              />
+            )}
+            <div className="h-[520px]">
+              <TenantFrame
+                screen={screen}
+                mutated={state.mutated}
+                highlight={highlight}
+                mode={frameMode}
+                pickKinds={pickKinds}
+                onPick={onPick}
+                onNavigate={setScreen}
+                rootRef={setRoot}
+                rowMarks={runner.marks}
+                rowNotes={runner.notes}
+                uploaded={runner.uploaded}
+                badge={badge}
+              />
+            </div>
+            <AdjustPanel
+              step={pick?.for === 'stop' ? stopStep : selected}
+              match={inspect}
               picking={!!pick}
+              saved={!!selected && savedStep === selected.id}
+              locked={running}
               onPointAt={() => selected && setPick({ for: 'step', id: selected.id })}
               onCancelPick={() => setPick(null)}
+              onReword={onReword}
+              onValue={(v) => selected && patch(selected.id, (s) => reword({ ...s, value: v }))}
             />
-          )}
-
-          {runner.phase === 'dryDone' && runner.result && (
-            <ResultPanel tone="dry" title="Dry run" sentence={runner.result.sentence} note="Preview only. Nothing downloaded and nothing left the browser." onClose={runner.dismiss} />
-          )}
-          {runner.phase === 'done' && runner.result && (
-            <ResultPanel
-              tone="done"
-              title="Run finished"
-              sentence={runner.result.sentence}
-              note="The file is also kept on this computer under Files."
-              onClose={runner.dismiss}
-              action={
-                <Button size="sm" onClick={() => dispatch({ type: 'go', view: { name: 'history' } })}>
-                  Run history
-                </Button>
-              }
-            />
-          )}
-        </section>
-      </div>
+          </div>
+        </div>
+      )}
 
       {runner.phase === 'approval' && runner.approval && <ApprovalModal approval={runner.approval} onApprove={runner.approve} onDecline={runner.decline} />}
 
       <Modal open={confirmRun} onClose={() => setConfirmRun(false)} title="Try a dry run first?" subtitle="A dry run shows you exactly what would happen, and nothing leaves the browser." width={460}>
         <div className="flex justify-end gap-2">
           <Button
+            size="sm"
             onClick={() => {
               setConfirmRun(false);
               runner.start('run');
@@ -345,13 +486,14 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
             Run anyway
           </Button>
           <Button
+            size="sm"
             variant="primary"
             onClick={() => {
               setConfirmRun(false);
               runner.start('dry');
             }}
           >
-            <FlaskConical size={14} /> Dry run
+            Dry run
           </Button>
         </div>
       </Modal>
