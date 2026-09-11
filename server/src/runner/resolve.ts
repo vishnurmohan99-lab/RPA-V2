@@ -56,7 +56,20 @@ const SCAN_SOURCE = `(function (attr) {
     if (placeholder) return placeholder.trim();
     var title = el.getAttribute('title');
     if (title) return title.trim();
-    return visibleText(el).slice(0, 160);
+    var own = visibleText(el).slice(0, 160);
+    if (own) return own;
+    // An icon-only interactive element (a link or button with no text, aria-label, or title of
+    // its own -- e.g. a bare "open" glyph in a grid-style report list: icon | icon | name | icon)
+    // would otherwise vanish from the candidate list entirely. Worse, since it's still inside a
+    // tagged ancestor (a <table> row, say), a click on it fell through to that ancestor instead
+    // -- "open the report" silently became "read the whole table". Borrowing the nearest
+    // row-like ancestor's text as a last resort keeps the element itself the match.
+    var row = el.closest('tr, li, [role="row"], [role="listitem"]');
+    if (row) {
+      var rowText = (row.innerText || row.textContent || '').trim().replace(/\\s+/g, ' ');
+      if (rowText && rowText.length < 100) return rowText;
+    }
+    return '';
   }
 
   function push(el, kind) {
