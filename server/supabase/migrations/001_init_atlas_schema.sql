@@ -37,6 +37,8 @@ create table sign_ins (
   id text primary key,
   label text not null,
   "user" text not null,
+  -- Not a secret -- an account/practice number some real sites ask for alongside username+password.
+  account text,
   created_at timestamptz not null default now()
 );
 

@@ -30,7 +30,7 @@ function toRow(name: Collection, item: any, index: number): any {
     case 'rules':
       return { id: item.id, text: item.text, on: item.on, sort_order: index };
     case 'signins':
-      return { id: item.id, label: item.label, user: item.user };
+      return { id: item.id, label: item.label, user: item.user, account: item.account ?? null };
     case 'history':
       return {
         id: item.id,
@@ -74,7 +74,7 @@ function fromRow(name: Collection, row: any): any {
     case 'rules':
       return { id: row.id, text: row.text, on: row.on };
     case 'signins':
-      return { id: row.id, label: row.label, user: row.user };
+      return { id: row.id, label: row.label, user: row.user, ...(row.account ? { account: row.account } : {}) };
     case 'history':
       return {
         id: row.id,

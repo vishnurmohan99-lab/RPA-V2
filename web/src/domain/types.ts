@@ -78,6 +78,8 @@ export interface SignIn {
   id: string;
   label: string;
   user: string;
+  /** Not a secret — an account/practice number some sites ask for alongside username+password. */
+  account?: string;
 }
 
 export type RunOutcome = 'clean' | 'attention' | 'stopped' | 'preview' | 'change' | 'failed';

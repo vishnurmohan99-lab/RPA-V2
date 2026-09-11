@@ -33,7 +33,7 @@ export const api = {
   loadState: () => req<ServerState>('/state'),
   saveAutomations: (a: Automation[]) => req('/automations', json('PUT', a)),
   saveRules: (r: HouseRuleState[]) => req('/rules', json('PUT', r)),
-  saveSignIns: (s: SignIn[]) => req('/signins', json('PUT', s.map(({ id, label, user }) => ({ id, label, user })))),
+  saveSignIns: (s: SignIn[]) => req('/signins', json('PUT', s.map(({ id, label, user, account }) => ({ id, label, user, ...(account ? { account } : {}) })))),
   saveHistory: (h: RunRecord[]) => req('/history', json('PUT', h)),
   addRun: (r: RunRecord) => req('/history', json('POST', r)),
 

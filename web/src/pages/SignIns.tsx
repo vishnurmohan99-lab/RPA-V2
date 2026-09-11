@@ -5,12 +5,13 @@ import { useStore } from '../state/store';
 import { Button, EmptyState, Field, inputCls, Modal, PageHeader } from '../shell/ui';
 
 export const VAULT_NOTE =
-  "The workshop keeps the name only. The password sits in the runner's own environment file and never appears here, in the workflow, or in the run history.";
+  "The workshop keeps the name, username and account number. The password sits in the runner's own environment file and never appears here, in the workflow, or in the run history.";
 
 export function AddSignInModal({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: (s: SignIn) => void }) {
   const { dispatch } = useStore();
   const [label, setLabel] = useState('');
   const [user, setUser] = useState('');
+  const [account, setAccount] = useState('');
   const ok = label.trim() && user.trim();
   return (
     <Modal open={open} onClose={onClose} title="Add a sign-in" subtitle="Give it a name your team will recognise." width={480}>
@@ -19,10 +20,11 @@ export function AddSignInModal({ open, onClose, onSaved }: { open: boolean; onCl
         onSubmit={(e) => {
           e.preventDefault();
           if (!ok) return;
-          const signIn: SignIn = { id: `cred-${Date.now().toString(36)}`, label: label.trim(), user: user.trim() };
+          const signIn: SignIn = { id: `cred-${Date.now().toString(36)}`, label: label.trim(), user: user.trim(), account: account.trim() || undefined };
           dispatch({ type: 'addSignIn', signIn });
           setLabel('');
           setUser('');
+          setAccount('');
           onSaved(signIn);
         }}
       >
@@ -31,6 +33,9 @@ export function AddSignInModal({ open, onClose, onSaved }: { open: boolean; onCl
         </Field>
         <Field label="Username">
           <input value={user} onChange={(e) => setUser(e.target.value)} placeholder="The PracticeSuite username" className={inputCls} />
+        </Field>
+        <Field label="Account # (if this sign-in needs one)">
+          <input value={account} onChange={(e) => setAccount(e.target.value)} placeholder="Optional — the practice/account number" className={inputCls} />
         </Field>
         <div className="flex items-start gap-3 rounded-card bg-mint px-4 py-3 text-[12.5px] leading-relaxed text-ink">
           <KeyRound size={16} className="mt-0.5 shrink-0 text-teal" />
@@ -60,7 +65,7 @@ export function SignIns() {
     <div>
       <PageHeader
         title="Sign-ins"
-        description="Named sign-ins your workflows use. Only the name and username live here."
+        description="Named sign-ins your workflows use. The name, username and account number live here — never a password."
         action={
           <Button variant="primary" onClick={() => setAdding(true)}>
             <Plus size={16} /> Add sign-in
@@ -81,6 +86,7 @@ export function SignIns() {
                 <tr className="border-b border-line bg-canvas text-left text-[11.5px] font-semibold text-body">
                   <th className="px-4 py-[13px]">Name</th>
                   <th className="px-4 py-[13px]">Username</th>
+                  <th className="px-4 py-[13px]">Account #</th>
                   <th className="px-4 py-[13px]">Used by</th>
                 </tr>
               </thead>
@@ -89,6 +95,7 @@ export function SignIns() {
                   <tr key={s.id} className="border-b border-[#F2F4F7] last:border-0">
                     <td className="px-4 py-[15px] text-[13.5px] font-semibold text-ink">{s.label}</td>
                     <td className="px-4 py-[15px] text-body">{s.user}</td>
+                    <td className="px-4 py-[15px] text-body">{s.account ?? '—'}</td>
                     <td className="px-4 py-[15px] text-body">{usedBy(s.id) === 1 ? '1 workflow' : `${usedBy(s.id)} workflows`}</td>
                   </tr>
                 ))}

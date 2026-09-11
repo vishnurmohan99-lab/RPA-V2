@@ -70,7 +70,7 @@ export function reducer(state: State, action: Action): State {
     case 'setRule':
       return { ...state, rules: state.rules.map((r) => (r.id === action.id ? { ...r, on: action.on } : r)) };
     case 'addSignIn':
-      return { ...state, signIns: [...state.signIns, { id: action.signIn.id, label: action.signIn.label, user: action.signIn.user }] };
+      return { ...state, signIns: [...state.signIns, { id: action.signIn.id, label: action.signIn.label, user: action.signIn.user, account: action.signIn.account }] };
     case 'addRun':
       return { ...state, history: [action.run, ...state.history] };
     case 'hydrate':

@@ -25,21 +25,26 @@ export interface SignInRecord {
   id: string;
   label: string;
   user: string;
+  /** Not a secret — an account/practice number some sites ask for alongside username+password. */
+  account?: string;
 }
 
-const SIGN_IN_KEYS = ['id', 'label', 'user'];
+const SIGN_IN_REQUIRED_KEYS = ['id', 'label', 'user'];
+const SIGN_IN_ALLOWED_KEYS = new Set(['id', 'label', 'user', 'account']);
 
-/** A sign-in is a name and a username. Anything else — a password above all — is refused. */
+/** A sign-in is a name, a username, and optionally an account number. Anything else — a password above all — is refused. */
 export function validateSignIns(value: unknown): value is SignInRecord[] {
   return (
     Array.isArray(value) &&
-    value.every(
-      (v) =>
-        v !== null &&
-        typeof v === 'object' &&
-        Object.keys(v).length === SIGN_IN_KEYS.length &&
-        SIGN_IN_KEYS.every((k) => typeof (v as Record<string, unknown>)[k] === 'string'),
-    )
+    value.every((v) => {
+      if (v === null || typeof v !== 'object') return false;
+      const keys = Object.keys(v as Record<string, unknown>);
+      if (!keys.every((k) => SIGN_IN_ALLOWED_KEYS.has(k))) return false;
+      const rec = v as Record<string, unknown>;
+      return (
+        SIGN_IN_REQUIRED_KEYS.every((k) => typeof rec[k] === 'string') && (rec.account === undefined || typeof rec.account === 'string')
+      );
+    })
   );
 }
 

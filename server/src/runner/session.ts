@@ -29,6 +29,8 @@ export interface RunnerSignIn {
   id: string;
   label: string;
   user: string;
+  /** Not a secret — an account/practice number some sites ask for alongside username+password. */
+  account?: string;
 }
 export interface RunnerRuleState {
   id: string;
@@ -64,6 +66,7 @@ interface Ctx {
 const money = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const USER_FIELD_GUESSES = ['Username', 'User', 'Email', 'User ID', 'User name', 'Login'];
+const ACCOUNT_FIELD_GUESSES = ['Account #', 'Account', 'Account number', 'Practice ID', 'Account ID'];
 const SUBMIT_GUESSES = ['Sign in', 'Log in', 'Login', 'Submit'];
 
 /**
@@ -226,6 +229,15 @@ export class RunSession extends EventEmitter {
     return best;
   }
 
+  private async resolveAccount(page: Page): Promise<Match | null> {
+    let best: Match | null = null;
+    for (const w of ACCOUNT_FIELD_GUESSES) {
+      const r = await resolve(page, w, ['field']);
+      if (r.best && (!best || r.best.s > best.s)) best = r.best;
+    }
+    return best;
+  }
+
   private async resolveSubmit(page: Page): Promise<Match | null> {
     let best: Match | null = null;
     for (const w of SUBMIT_GUESSES) {
@@ -247,6 +259,13 @@ export class RunSession extends EventEmitter {
     if (user) {
       this.send({ type: 'highlight', box: user.box, label: user.label, s: user.s, tone: 'teal' });
       await locatorFor(page, user.ref).fill(signIn.user).catch(() => {});
+    }
+    if (signIn.account) {
+      const account = await this.resolveAccount(page);
+      if (account) {
+        this.send({ type: 'highlight', box: account.box, label: account.label, s: account.s, tone: 'teal' });
+        await locatorFor(page, account.ref).fill(signIn.account).catch(() => {});
+      }
     }
     const pwField = page.locator('input[type=password]').first();
     if ((await pwField.count()) > 0) await pwField.fill(password ?? '').catch(() => {});
