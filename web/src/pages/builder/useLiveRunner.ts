@@ -60,6 +60,7 @@ export function useLiveRunner(automationId: string) {
   const [approval, setApproval] = useState<LiveApproval | null>(null);
   const [result, setResult] = useState<{ sentence: string } | null>(null);
   const [picking, setPicking] = useState(false);
+  const [runId, setRunId] = useState<string | null>(null);
   const runIdRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -90,6 +91,7 @@ export function useLiveRunner(automationId: string) {
     try {
       const { runId } = await api.startLiveRun(automationId, mode);
       runIdRef.current = runId;
+      setRunId(runId);
       const ws = new WebSocket(api.liveSocketUrl(runId));
       wsRef.current = ws;
       setPhase('running');
@@ -170,6 +172,7 @@ export function useLiveRunner(automationId: string) {
     withRun((id) => api.liveStop(id));
     closeSocket();
     setPhase('idle');
+    setRunId(null);
   };
   const dismiss = () => {
     setResult(null);
@@ -207,5 +210,6 @@ export function useLiveRunner(automationId: string) {
     dismiss,
     pick,
     scroll,
+    runId,
   };
 }

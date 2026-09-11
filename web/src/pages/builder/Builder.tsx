@@ -1,3 +1,4 @@
+import { ExternalLink } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ACTIONS, makeStep, reword } from '../../domain/actions';
 import { isConfident, pct, resolveIn, SCORES, type Match } from '../../domain/binder';
@@ -5,14 +6,13 @@ import { addBranch, edgesOf, insertAfter, layout, orderSteps, removeNode, syncOr
 import { parser } from '../../domain/parser';
 import { recordStep } from '../../domain/recorder';
 import type { Automation, Kind, ScreenId, Step } from '../../domain/types';
+import { liveChannelName } from '../../liveview/channel';
 import { useStore } from '../../state/store';
 import { useToast } from '../../shell/Toast';
 import { Button, Modal } from '../../shell/ui';
 import { TenantFrame, type TenantHighlight } from '../../tenant/TenantFrame';
-import { BrowsePane } from './BrowsePane';
 import { ChatPane } from './ChatPane';
 import { FlowCanvas, type PlusMenu } from './FlowCanvas';
-import { LiveBrowserPane } from './LiveBrowserPane';
 import { ManualPicker } from './ManualPicker';
 import { AdjustPanel, ApprovalModal, LiveRunBar, RecordStrip, RunBar } from './panels';
 import { PreflightProbe } from './Preflight';
@@ -42,6 +42,21 @@ export function Builder({ id, start }: { id: string; start?: Start }) {
 type Pick = { for: 'step'; id: string } | { for: 'stop' } | null;
 
 const HEADER_BTN = 'rounded-card border border-line bg-white px-3.5 py-2 text-[12.5px] text-body hover:bg-canvas disabled:opacity-50';
+
+/** Shown in the pane's old spot once the live screenshot stream has moved to its own popup tab. */
+function LiveTabStatus({ connecting, onReopen }: { connecting: boolean; onReopen: () => void }) {
+  return (
+    <div className="flex h-[220px] flex-col items-center justify-center gap-3 rounded-[10px] border border-dashed border-[#D0D5DD] bg-white p-[22px] text-center">
+      <ExternalLink size={22} className="text-muted" />
+      <div className="text-[12.5px] leading-[1.6] text-muted">
+        {connecting ? 'Opening the real page in its own tab…' : "The real page streams in its own tab now, so it isn't squeezed into this layout."}
+      </div>
+      <button onClick={onReopen} className="rounded-card border border-line bg-white px-3.5 py-2 text-[12.5px] font-semibold text-teal hover:bg-canvas">
+        {connecting ? 'Reopen that tab' : 'Reopen live view tab'}
+      </button>
+    </div>
+  );
+}
 
 function BuilderInner({ automation, start }: { automation: Automation; start?: Start }) {
   const { state, dispatch } = useStore();
@@ -218,13 +233,52 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
     }
   };
 
-  // A click on the live real page: `browse.click` both tells us what's there and actually
-  // clicks it (so a nav link or button really navigates), then it's handled exactly like a
-  // click on the synthetic mockup — same recording / point-at-it branches in onPick.
-  const onBrowseClick = async (xPct: number, yPct: number) => {
-    const hit = await browse.click(xPct, yPct);
-    if (hit) onPick(hit.label, hit.kind);
+  // Opens (or reuses/refocuses) one dedicated popup tab per workflow that streams the live real
+  // page — the whole point being Diane can size/move that tab herself instead of fighting for
+  // space inside the builder's own layout. The same window name means switching between
+  // authoring (browse) and an actual run reuses the same tab rather than piling up new ones.
+  const activeLiveId = live.phase !== 'idle' ? live.runId : runTarget === 'browser' && !running ? browse.id : null;
+  const activeLiveKind: 'browse' | 'run' = live.phase !== 'idle' ? 'run' : 'browse';
+  const openedIdRef = useRef<string | null>(null);
+
+  const openLiveTab = useCallback(
+    (idToOpen: string, kind: 'browse' | 'run') => {
+      const href = `${location.origin}${location.pathname}#live=${kind}&id=${encodeURIComponent(idToOpen)}&url=${encodeURIComponent(automation.startUrl || 'https://example.com')}`;
+      window.open(href, `atlas-live-${automation.id}`, 'noopener');
+    },
+    [automation.id, automation.startUrl],
+  );
+
+  useEffect(() => {
+    if (activeLiveId && openedIdRef.current !== activeLiveId) {
+      openedIdRef.current = activeLiveId;
+      openLiveTab(activeLiveId, activeLiveKind);
+    }
+    if (!activeLiveId) openedIdRef.current = null;
+  }, [activeLiveId, activeLiveKind, openLiveTab]);
+
+  // Routes a click made in the popup tab back into the same recording / point-at-it / stop-and-
+  // ask-answer logic a click on the builder's own (now-removed) inline pane used to trigger. Kept
+  // in a ref so the channel subscription below doesn't need to reopen every time these change.
+  const hitHandlerRef = useRef((_label: string, _kind: Kind) => {});
+  hitHandlerRef.current = (label, kind) => {
+    if (live.phase === 'attention') {
+      live.answer(label);
+      return;
+    }
+    if (live.phase !== 'idle') return;
+    onPick(label, kind);
   };
+
+  useEffect(() => {
+    if (!activeLiveId) return;
+    const channel = new BroadcastChannel(liveChannelName(activeLiveId));
+    channel.onmessage = (ev) => {
+      const { type, label, kind } = ev.data ?? {};
+      if (type === 'hit' && typeof label === 'string') hitHandlerRef.current(label, kind as Kind);
+    };
+    return () => channel.close();
+  }, [activeLiveId]);
 
   const onReword = (text: string) => {
     if (!selected) return;
@@ -471,19 +525,19 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
                     setTab('logs');
                   }}
                 />
-                <div className="h-[min(85vh,900px)] min-h-[460px]">
-                  <LiveBrowserPane
-                    screenshot={live.screenshot}
-                    highlight={live.highlight}
-                    logs={live.logs}
-                    picking={live.picking}
-                    onPick={(x, y) => live.pick(x, y, 1280, 800)}
-                    onScroll={live.scroll}
-                    startUrl={automation.startUrl || 'https://example.com'}
-                  />
-                </div>
-                <div className="rounded-[10px] border border-line bg-white p-[18px] text-[12.5px] leading-[1.6] text-muted">
-                  Driving a real browser on the server. A step's target isn't checked until the run reaches it — there's nothing to preview here before you press Run or Dry run.
+                <LiveTabStatus connecting={!live.screenshot} onReopen={() => live.runId && openLiveTab(live.runId, 'run')} />
+                <div className="max-h-[240px] overflow-y-auto rounded-[10px] border border-line bg-white p-[18px] text-[12.5px] leading-[1.6] text-muted">
+                  {live.logs.length === 0 ? (
+                    'Driving a real browser on the server. A step’s target isn’t checked until the run reaches it.'
+                  ) : (
+                    <div className="space-y-1.5 text-left">
+                      {live.logs.map((l, i) => (
+                        <div key={i} className={l.tone === 'err' ? 'text-red' : l.tone === 'warn' ? 'text-amber' : 'text-body'}>
+                          {l.text}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
@@ -524,18 +578,9 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
                     }}
                   />
                 )}
-                <div className="h-[min(85vh,900px)] min-h-[460px]">
+                <div className={runTarget === 'browser' ? undefined : 'h-[min(85vh,900px)] min-h-[460px]'}>
                   {runTarget === 'browser' ? (
-                    <BrowsePane
-                      screenshot={browse.screenshot}
-                      connecting={browse.connecting}
-                      error={browse.error}
-                      url={automation.startUrl || 'https://example.com'}
-                      recording={recording || !!pick}
-                      onClick={onBrowseClick}
-                      onScroll={browse.scroll}
-                      badge={badge}
-                    />
+                    <LiveTabStatus connecting={browse.connecting} onReopen={() => browse.id && openLiveTab(browse.id, 'browse')} />
                   ) : (
                     <TenantFrame
                       screen={screen}

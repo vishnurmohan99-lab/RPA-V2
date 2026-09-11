@@ -14,6 +14,7 @@ export function useBrowseSession(url: string | null) {
   const [screenshot, setScreenshot] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [id, setId] = useState<string | null>(null);
   const idRef = useRef<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -23,11 +24,13 @@ export function useBrowseSession(url: string | null) {
     setConnecting(true);
     setError(null);
     setScreenshot(null);
+    setId(null);
     (async () => {
       try {
         const { browseId } = await api.startBrowse(url);
         if (cancelled) return;
         idRef.current = browseId;
+        setId(browseId);
         const ws = new WebSocket(api.liveSocketUrl(browseId));
         wsRef.current = ws;
         ws.onmessage = (ev) => {
@@ -54,6 +57,7 @@ export function useBrowseSession(url: string | null) {
       wsRef.current = null;
       if (idRef.current) api.stopBrowse(idRef.current).catch(() => {});
       idRef.current = null;
+      setId(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
@@ -68,5 +72,5 @@ export function useBrowseSession(url: string | null) {
     if (idRef.current) api.browseScroll(idRef.current, deltaY).catch(() => {});
   };
 
-  return { screenshot, connecting, error, click, scroll };
+  return { id, screenshot, connecting, error, click, scroll };
 }
