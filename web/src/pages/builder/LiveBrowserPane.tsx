@@ -1,6 +1,7 @@
 import { Crosshair, Globe } from 'lucide-react';
 import { useRef } from 'react';
 import type { LiveHighlight, LiveLog } from './useLiveRunner';
+import { useContainSize } from './useContainSize';
 
 const TONE_BORDER = { teal: 'border-teal', red: 'border-red', amber: 'border-amber' } as const;
 const TONE_FILL = {
@@ -36,11 +37,13 @@ export function LiveBrowserPane({
   const imgRef = useRef<HTMLImageElement>(null);
   const VIEW_W = 1280;
   const VIEW_H = 800;
+  const [containerRef, box] = useContainSize(VIEW_W / VIEW_H);
 
   const onClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!picking || !imgRef.current) return;
-    // The wrapper is CSS-locked to the screenshot's own aspect ratio (see below), so its box IS
-    // the image's drawn rect — no object-contain letterbox math needed to map a click correctly.
+    // The wrapper is sized in JS to the largest box of exactly the screenshot's aspect ratio that
+    // fits the container (see useContainSize), so its box IS the image's drawn rect — no
+    // object-contain letterbox math needed to map a click correctly.
     const r = imgRef.current.getBoundingClientRect();
     onPick((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
   };
@@ -53,13 +56,15 @@ export function LiveBrowserPane({
         <span className="whitespace-nowrap text-[11.5px] font-semibold text-teal">Real browser</span>
       </div>
 
-      <div className="flex min-h-0 flex-[2] items-center justify-center overflow-hidden bg-[#0B0D0F]">
+      <div ref={containerRef} className="flex min-h-0 flex-[2] items-center justify-center overflow-hidden bg-[#0B0D0F]">
         {screenshot ? (
-          // Locked to the screenshot's own aspect ratio so this box IS the image's drawn rect —
-          // no object-contain letterbox math needed to place the overlay box or map a click.
+          // Sized in JS (useContainSize) to the exact pixel box that fits the container without
+          // distorting the 1280:800 ratio -- CSS aspect-ratio alone stretched the image whenever
+          // the container's own shape wasn't exactly 1280:800, since giving the wrapper both an
+          // explicit height and a max-width cap breaks the ratio instead of preserving it.
           <div
-            className={`relative max-h-full max-w-full ${picking ? 'cursor-crosshair' : ''}`}
-            style={{ aspectRatio: `${VIEW_W} / ${VIEW_H}`, width: '100%', height: '100%' }}
+            className={`relative ${picking ? 'cursor-crosshair' : ''}`}
+            style={{ width: box.width, height: box.height }}
             onClick={onClick}
           >
             <img ref={imgRef} src={screenshot} alt="Live view of the real page" className="h-full w-full" />

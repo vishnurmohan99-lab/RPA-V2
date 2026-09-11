@@ -139,5 +139,21 @@ export async function elementAt(page: Page, x: number, y: number): Promise<Candi
   const hit = (await page.evaluate(
     `(function(px, py, attr) { var el = document.elementFromPoint(px, py); if (!el) return null; var t = el.closest('[' + attr + ']'); return t ? t.getAttribute(attr) : null; })(${x}, ${y}, ${JSON.stringify(ATTR)})`,
   )) as string | null;
-  return all.find((c) => c.ref === hit) ?? null;
+  const found = all.find((c) => c.ref === hit);
+  if (found) return found;
+  // A password input is deliberately never scanned as a nameable field (see the field selector
+  // above) -- so Diane can never be asked to type a literal password into a step's saved value.
+  // But clicking one while recording clearly means "this is the sign-in form", so hand back the
+  // same {kind:'button', label:'Sign in'} shape a click on an actual "Sign in" button would --
+  // the client already turns that into a proper signin step, with the real password coming from
+  // the server's own environment file at run time, never typed into the app.
+  const isPassword = (await page.evaluate(
+    `(function(px, py) {
+      var els = document.elementsFromPoint(px, py);
+      for (var i = 0; i < els.length; i++) if (els[i].matches && els[i].matches('input[type=password]')) return true;
+      return false;
+    })(${x}, ${y})`,
+  )) as boolean;
+  if (isPassword) return { ref: '', kind: 'button', label: 'Sign in', box: { x: x - 1, y: y - 1, width: 2, height: 2 } };
+  return null;
 }

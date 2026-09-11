@@ -1,6 +1,7 @@
 import { Crosshair, Globe } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useRef } from 'react';
+import { useContainSize } from './useContainSize';
 
 /**
  * The authoring-time counterpart to `LiveBrowserPane`: a live screenshot feed of the workflow's
@@ -29,6 +30,7 @@ export function BrowsePane({
   const imgRef = useRef<HTMLImageElement>(null);
   const VIEW_W = 1280;
   const VIEW_H = 800;
+  const [containerRef, box] = useContainSize(VIEW_W / VIEW_H);
 
   const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!imgRef.current) return;
@@ -44,13 +46,18 @@ export function BrowsePane({
         {badge}
       </div>
 
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#0B0D0F]">
+      <div ref={containerRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#0B0D0F]">
         {error ? (
           <div className="max-w-[320px] px-4 text-center text-[12.5px] leading-[1.6] text-white/70">{error}</div>
         ) : screenshot ? (
+          // Sized in JS (useContainSize) to the exact pixel box that fits the container without
+          // distorting the 1280:800 ratio -- CSS aspect-ratio alone stretched the image (and
+          // skewed click-to-coordinate mapping) whenever the container's own shape wasn't exactly
+          // 1280:800, since giving the wrapper both an explicit height and a max-width cap breaks
+          // the ratio instead of preserving it.
           <div
-            className={`relative max-h-full max-w-full ${recording ? 'cursor-crosshair' : ''}`}
-            style={{ aspectRatio: `${VIEW_W} / ${VIEW_H}`, width: '100%', height: '100%' }}
+            className={`relative ${recording ? 'cursor-crosshair' : ''}`}
+            style={{ width: box.width, height: box.height }}
             onClick={handleClick}
           >
             <img ref={imgRef} src={screenshot} alt="Live view of the real page" className="h-full w-full" />
