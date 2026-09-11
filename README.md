@@ -22,6 +22,10 @@ Every workflow can run two ways, chosen from the builder's "Run in" dropdown:
 
 A sign-in step needs the matching password in the server's own environment — see `.env.example` for the `ATLAS_CRED_*` naming. Nothing else about a real run needs configuring: the workflow's steps, house rules and destinations are the same ones used on the synthetic screen.
 
+## Storage: Supabase or local files
+
+Saved workflows, house rules, sign-ins and run history — plus kept files (the CSVs a run catches) — live in **Supabase** (Postgres + Storage) when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set, or in local JSON files and disk under `ATLAS_DATA_ROOT` (default `./server`) otherwise. See `.env.example`. The server logs which one it picked on startup. Use the `service_role` secret key, never the anon/publishable one — it's what lets the trusted server bypass Row Level Security (there's no browser-side Supabase client; nothing else can reach these tables or that storage bucket).
+
 ## Production build
 
 ```bash
@@ -29,17 +33,15 @@ npm run build
 npm start          # one process serves the app and the API on $PORT (default 3001)
 ```
 
-Saved automations, run history and kept files go under `ATLAS_DATA_ROOT` (default `./server`). See `.env.example`.
-
 ## Deploy
 
-**Full app (saving, run history, files, real-browser runs):** a Docker host with a persistent disk. The image is built on Playwright's own base image so Chromium and its OS dependencies are already there.
+**Full app (saving, run history, files, real-browser runs):** a Docker host. The image is built on Playwright's own base image so Chromium and its OS dependencies are already there.
 
 ```bash
 docker build -t atlas-automation .
-docker run -p 3001:3001 -v atlas-data:/data atlas-automation
+docker run -p 3001:3001 --env-file .env atlas-automation
 ```
 
-On Render, `render.yaml` creates the service and a disk mounted at `/data`.
+On Render, `render.yaml` creates the service (free plan — no persistent disk needed once Supabase is configured, since that's where everything actually lives; set `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` in the Render dashboard when prompted). Chromium is memory-hungry, so "Run in: Real browser" may need a paid instance to run reliably.
 
-**Static demo only:** `netlify.toml` publishes `web/dist`. The app runs from built-in data and shows "Not saving right now". "Run in: Real browser" needs the server, so it isn't available here — only "This screen".
+**Static demo only:** `netlify.toml` publishes `web/dist`. The app runs from built-in data and shows "Not saving right now" regardless of Supabase — a static site has no server to talk to it from. "Run in: Real browser" needs the server too, so it isn't available here either — only "This screen".

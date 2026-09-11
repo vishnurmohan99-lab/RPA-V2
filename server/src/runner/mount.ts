@@ -3,10 +3,10 @@ import type { Express } from 'express';
 import type { IncomingMessage, Server } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { WebSocketServer, type WebSocket } from 'ws';
+import type { AppFileStore, Store } from '../db/index.js';
 import type { Destination } from '../destinations.js';
 import { destinationByLabelOrId } from '../destinations.js';
-import type { FileStore } from '../files.js';
-import { isSafeId, JsonStore } from '../store.js';
+import { isSafeId } from '../store.js';
 import { RunSession, type RunnerAutomation, type RunnerRuleState, type RunnerSignIn, type RunMode } from './session.js';
 
 interface Live {
@@ -16,7 +16,7 @@ interface Live {
 }
 
 /** Wires the real-browser runner's HTTP routes onto `app` and returns an upgrade handler for `/live`. */
-export function mountRunner(app: Express, store: JsonStore, files: FileStore) {
+export function mountRunner(app: Express, store: Store, files: AppFileStore) {
   const runs = new Map<string, Live>();
 
   const broadcast = (id: string, data: unknown) => {
@@ -31,50 +31,54 @@ export function mountRunner(app: Express, store: JsonStore, files: FileStore) {
   };
 
   app.post('/api/runs', (req, res) => {
-    const { automationId, mode } = req.body ?? {};
-    if (typeof automationId !== 'string' || (mode !== 'dry' && mode !== 'run')) {
-      return res.status(400).json({ message: 'I need a workflow and a mode to run it in.' });
-    }
-    const automations = store.read<RunnerAutomation[]>('automations') ?? [];
-    const automation = automations.find((a) => a.id === automationId);
-    if (!automation) return res.status(404).json({ message: 'That workflow is not here any more.' });
-    const rules = store.read<RunnerRuleState[]>('rules') ?? [];
-    const signIns = store.read<RunnerSignIn[]>('signins') ?? [];
+    (async () => {
+      const { automationId, mode } = req.body ?? {};
+      if (typeof automationId !== 'string' || (mode !== 'dry' && mode !== 'run')) {
+        return res.status(400).json({ message: 'I need a workflow and a mode to run it in.' });
+      }
+      const automations = (await store.read<RunnerAutomation[]>('automations')) ?? [];
+      const automation = automations.find((a) => a.id === automationId);
+      if (!automation) return res.status(404).json({ message: 'That workflow is not here any more.' });
+      const rules = (await store.read<RunnerRuleState[]>('rules')) ?? [];
+      const signIns = (await store.read<RunnerSignIn[]>('signins')) ?? [];
 
-    const id = `live-${crypto.randomUUID().slice(0, 8)}`;
-    const session = new RunSession(
-      id,
-      automation,
-      mode as RunMode,
-      signIns,
-      rules,
-      (stepId, label) => {
-        const list = store.read<RunnerAutomation[]>('automations') ?? [];
-        const next = list.map((a) => (a.id !== automationId ? a : { ...a, steps: a.steps.map((s) => (s.id === stepId ? { ...s, bind: label } : s)) }));
-        store.write('automations', next);
-      },
-      async (buffer, name) => {
-        try {
-          return files.add(buffer, name, automationId, id);
-        } catch {
-          return null;
-        }
-      },
-      async (fileId, destination) => {
-        const dest: Destination | null = destinationByLabelOrId(destination);
-        if (dest) files.send(fileId, dest);
-      },
-    );
+      const id = `live-${crypto.randomUUID().slice(0, 8)}`;
+      const session = new RunSession(
+        id,
+        automation,
+        mode as RunMode,
+        signIns,
+        rules,
+        (stepId, label) => {
+          // Fires mid-run; persisting doesn't need to block the run itself.
+          store.rebindStep(automationId, stepId, label).catch((e) => console.error('[atlas] rebindStep failed:', e));
+        },
+        async (buffer, name) => {
+          try {
+            return await files.add(buffer, name, automationId, id);
+          } catch {
+            return null;
+          }
+        },
+        async (fileId, destination) => {
+          const dest: Destination | null = destinationByLabelOrId(destination);
+          if (dest) await files.send(fileId, dest);
+        },
+      );
 
-    const live: Live = { session, events: [], sockets: new Set() };
-    runs.set(id, live);
-    session.on('event', (e) => broadcast(id, e));
-    session.start().finally(() => {
-      // Keep the finished session around briefly so a slow-to-connect socket still gets the tail end.
-      setTimeout(() => runs.delete(id), 60_000);
+      const live: Live = { session, events: [], sockets: new Set() };
+      runs.set(id, live);
+      session.on('event', (e) => broadcast(id, e));
+      session.start().finally(() => {
+        // Keep the finished session around briefly so a slow-to-connect socket still gets the tail end.
+        setTimeout(() => runs.delete(id), 60_000);
+      });
+
+      res.json({ runId: id });
+    })().catch((e) => {
+      console.error('[atlas] /api/runs failed:', e);
+      if (!res.headersSent) res.status(500).json({ message: 'Something went wrong starting the run. Nothing was changed.' });
     });
-
-    res.json({ runId: id });
   });
 
   const find = (req: { params: { runId: string } }, res: { status: (n: number) => { json: (b: unknown) => void } }) => {

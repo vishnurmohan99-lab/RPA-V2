@@ -46,17 +46,22 @@ A second, complete runner that drives an actual Playwright/Chromium session agai
 
 ## Server (`server/src/`)
 
-- `store.ts` — tiny JSON-file store (`JsonStore`, atomic write-then-rename) + `validateSignIns()` which **rejects any object with fields beyond `{id,label,user}`** — this is the enforcement point for "no passwords, ever."
-- `files.ts` / `destinations.ts` — kept downloads live under `ATLAS_DATA_ROOT/files/<automationId>/<runId>/`; `saveTo`/`upload` steps copy to a named `Destination` (`billing-share`, `posting`, `vendor-portal`) after approval, never before.
-- `app.ts` — all routes return calm JSON error messages (`{ message: '...' }`), never a raw error/stack trace, matching the "never show Diane a stack trace" rule.
-- The web client (`web/src/state/persistence.ts`) debounce-saves to the server and falls back to **offline mode** ("Not saving right now" chip) if the server is unreachable — the whole demo must still run from seed data with the server off. Don't add a hard dependency on the server being up.
+- **`db/`** — the primary storage layer: **Supabase** (Postgres + Storage), used when `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are set.
+  - `client.ts` — one lazily-created `SupabaseClient` using the **service_role** key (bypasses RLS; the Express server is the only trusted caller — there's no browser-side Supabase client anywhere in this app).
+  - `store.ts` (`SupabaseStore`) — same `read(name)`/`write(name, items)`-by-collection-name shape the old `JsonStore` had (kept deliberately close so callers barely changed), mapping camelCase TS shapes to snake_case rows across the `automations`/`house_rules`/`sign_ins`/`run_history` tables. `write()` does a full replace: upsert what's given, delete whatever else was in the table — matching the old "send the whole array" semantics the client already uses. An **empty table reads as `null`**, not `[]`, on purpose — that's the signal `web/src/state/persistence.ts` uses to decide whether to seed on first boot; see the comment in `store.ts` for the (pre-existing, harmless) quirk this causes if someone deletes everything.
+  - `fileStore.ts` (`SupabaseFileStore`) — kept files live in a private Storage bucket (`files`), indexed by the `kept_files` table. "Send to a folder destination" copies the object to `destinations/<destId>/...` inside the same bucket, standing in for the old copy-to-a-local-folder behaviour.
+  - `index.ts` — `createStore()`/`createFileStore()` pick Supabase when configured, **local JSON files + disk otherwise** (via thin adapters wrapping the original `JsonStore`/`FileStore` classes in `server/src/store.ts`/`files.ts`, which still exist and are still tested). This fallback is deliberate: it keeps a fresh clone running with zero setup, the same offline-friendly principle the client already applies to "is the server reachable at all."
+- **Supabase project**: `sonwtmnfkrotxzwoasvx` (org "Vishnu Test Server" on the account connected to the Supabase MCP). RLS is enabled with no policies on every table (deny-by-default for the anon/publishable key; service_role bypasses it) — that's intentional, not a gap to "fix." Schema/seed SQL is checked in at `server/supabase/migrations/` for reference — it was applied via the Supabase MCP (`apply_migration`/`execute_sql`) when the project was set up, not run automatically by this app; those files exist for reproducibility, not as a live migration runner.
+- `store.ts` (top-level) / `files.ts` / `destinations.ts` — the original local-disk implementation: `JsonStore` (atomic write-then-rename) + `validateSignIns()`, which **rejects any object with fields beyond `{id,label,user}`** — the enforcement point for "no passwords, ever," same rule in both storage backends. Still the fallback when Supabase isn't configured.
+- `app.ts` — all routes are wrapped (`wrap()`) so a rejected promise reaches the error middleware (Express 4 doesn't do this on its own); all error responses stay calm JSON messages (`{ message: '...' }`), never a raw error/stack trace.
+- The web client (`web/src/state/persistence.ts`) debounce-saves to the server and falls back to **offline mode** ("Not saving right now" chip) if the server is unreachable — the whole demo must still run from seed data with the server off. Don't add a hard dependency on the server being up. Note this chip is about the *server*, not Supabase specifically — a static-only deploy (Vercel/Netlify) shows it permanently regardless of Supabase, since there's no server there to reach at all.
 
 ## Deploy targets (three, on purpose)
 
 | Target | What it serves | Config |
 |---|---|---|
 | **Vercel** (`https://rpa-v2.vercel.app`, live) | Static `web/dist` only — no server, no saving, "Not saving right now" always shown | `vercel.json` |
-| **Render** | Full app (server + built web + real-browser runner, persistent disk at `/data`) | `render.yaml`, `Dockerfile` (built on Playwright's own base image) |
+| **Render** | Full app (server + built web + real-browser runner). Free plan works once Supabase is configured (no disk needed); without Supabase it needs local disk + a paid plan | `render.yaml`, `Dockerfile` (built on Playwright's own base image) |
 | **Netlify** | Same static-only option as Vercel | `netlify.toml` |
 
 Vercel is what's actually deployed today; pushing to `master` auto-redeploys it (`vercel ls` / `vercel inspect --wait` to check build status — the CLI is already authenticated as `vishnurmohan99-9349`). Render/Netlify configs exist but aren't connected to an account yet.
