@@ -11,14 +11,16 @@ const SCREENS: { words: string[]; label: string; screen: ScreenId; money: string
   { words: ['patients', 'patient'], label: 'Patients', screen: 'patients', money: '' },
 ];
 
-/** Rough position in an automation: open → work on screen → rules → review → export → leaves. */
+/** Rough position in a workflow: go to → sign in → open → work on screen → rules → review → export → leaves. */
 function bucket(s: Step): number {
-  if (s.verb === 'open' || s.verb === 'goto') return 0;
-  if (s.verb === 'rules') return 2;
-  if (s.verb === 'review') return 3;
-  if (s.verb === 'click' && /export|download/i.test(s.bind ?? '')) return 4;
-  if (ACTIONS[s.verb]?.resolves === 'edge') return 5;
-  return 1;
+  if (s.verb === 'goto') return 0;
+  if (s.verb === 'signin') return 1;
+  if (s.verb === 'open') return 2;
+  if (s.verb === 'rules') return 4;
+  if (s.verb === 'review') return 5;
+  if (s.verb === 'click' && /export|download/i.test(s.bind ?? '')) return 6;
+  if (ACTIONS[s.verb]?.resolves === 'edge') return 7;
+  return 3;
 }
 
 function insert(steps: Step[], step: Step): Step[] {
@@ -75,13 +77,21 @@ export const keywordParser: InstructionParser = {
       added.push(step);
     };
     const ensure = (verb: string, bind: string | null = null, value?: string) => {
-      if (!has(verb, bind ?? undefined)) add(makeStep(verb, bind, value));
+      if (!has(verb, bind ?? undefined)) add(makeStep(verb, null, value));
     };
     const onScreen = () => screenOf(steps);
 
     // Go to a web address
     const url = t.match(/\b(?:go to|visit|open)\s+(https?:\/\/\S+)/i);
     if (url) add(makeStep('goto', null, url[1]));
+
+    // Sign in — by the name of a saved sign-in, never a password
+    if (/\b(log[ -]?in|sign[ -]?in|login)\b/i.test(t) && !has('signin')) {
+      const names = ctx.signIns ?? [];
+      const named = names.find((n) => t.toLowerCase().includes(n.toLowerCase())) ?? names[0];
+      add(makeStep('signin', 'Sign in', named, { screen: 'signin' }));
+      if (!names.length) notes.push('Pick which sign-in to use under the step, or add one under Sign-ins.');
+    }
 
     // Open a screen
     const open = t.match(/\b(?:open|go to|pull up|head to|switch to|start on)\s+(?:the\s+)?([a-z]+)/i);
@@ -180,21 +190,19 @@ export const keywordParser: InstructionParser = {
     if (added.length === 0) {
       return {
         steps: current,
-        reply: notes[0] ?? 'I did not catch that. Try something like “open the balances screen” or “only people over 30 days”.',
+        reply: notes[0] ?? 'I did not catch that. Try something like “log in, then open the balances screen” or “only people over 30 days”.',
       };
     }
 
     const firstBuild = current.length === 0;
     let reply: string;
-    if (firstBuild) reply = `Done. I wrote ${added.length} steps. Click any step to see what it points at.`;
+    if (firstBuild) reply = `Done. I wrote ${added.length} ${added.length === 1 ? 'step' : 'steps'}. Click any step to see what it points at.`;
     else if (added.length === 1) reply = `Added: “${added[0].sentence}”`;
     else reply = `Added ${added.length} steps.`;
     if (notes.length) reply += ` ${notes.join(' ')}`;
 
     const askHold = firstBuild && steps.some((s) => s.verb === 'rules');
-    return askHold
-      ? { steps, reply, question: 'hold-5000' }
-      : { steps, reply };
+    return askHold ? { steps, reply, question: 'hold-5000' } : { steps, reply };
   },
 };
 

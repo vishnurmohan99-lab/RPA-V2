@@ -24,6 +24,8 @@ export interface ScreenProps {
   rowNotes?: Record<string, string>;
   onAction?: (label: string) => void;
   uploaded?: { name: string; detail: string } | null;
+  /** The username a sign-in step filled in. There is never a password here. */
+  signIn?: { user: string } | null;
 }
 
 export interface TenantProps extends ScreenProps {
@@ -37,6 +39,8 @@ export interface TenantProps extends ScreenProps {
   rootRef?: (el: HTMLDivElement | null) => void;
   /** Shown at the right of the address bar, e.g. "Live view" or "Recording". */
   badge?: ReactNode;
+  /** Address to show instead of the synthetic one, e.g. the workflow's starting URL on its first page. */
+  url?: string;
 }
 
 export const SCREEN_URL: Record<ScreenId, string> = {
@@ -92,7 +96,7 @@ const TONE: Record<Tone, { border: string; fill: string; tag: string }> = {
 };
 
 export function TenantFrame(props: TenantProps) {
-  const { screen, highlight, mode = 'normal', pickKinds, onPick, onNavigate, rootRef, badge, ...screenProps } = props;
+  const { screen, highlight, mode = 'normal', pickKinds, onPick, onNavigate, rootRef, badge, url, ...screenProps } = props;
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [box, setBox] = useState<Box | null>(null);
@@ -178,7 +182,7 @@ export function TenantFrame(props: TenantProps) {
             <span key={i} className="block h-[9px] w-[9px] rounded-full bg-line" />
           ))}
         </div>
-        <div className="min-w-0 flex-1 truncate rounded-md bg-[#F2F4F7] px-2.5 py-[5px] text-[11.5px] text-muted">https://{SCREEN_URL[screen]}</div>
+        <div className="min-w-0 flex-1 truncate rounded-md bg-[#F2F4F7] px-2.5 py-[5px] text-[11.5px] text-muted">{url ?? `https://${SCREEN_URL[screen]}`}</div>
         {badge}
       </div>
 

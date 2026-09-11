@@ -21,10 +21,11 @@ export function saveBlob(name: string, blob: Blob) {
 
 export const today = () => new Date().toISOString().slice(0, 10);
 
-/** "Billing share › statements-{date}.csv" gives the file name; a destination without one gets a plain default. */
-export function fileNameFor(destination: string): string {
+/** "Billing share › statements-{date}.csv" gives the file name; otherwise the file is named after the workflow. */
+export function fileNameFor(destination: string, workflowName = 'statements'): string {
   const parts = destination.split('›');
-  const pattern = parts.length > 1 ? parts.pop()!.trim() : 'statements-{date}.csv';
+  const slug = workflowName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'statements';
+  const pattern = parts.length > 1 ? parts.pop()!.trim() : `${slug}-{date}.csv`;
   const name = pattern.includes('.') ? pattern : `${pattern}-{date}.csv`;
   return name.replace('{date}', today()).replace(/\s+/g, '-').toLowerCase();
 }

@@ -11,4 +11,11 @@ describe('recorder', () => {
     expect(recordStep('Deposit date', 'field', 'payments', '2026-09-05').sentence).toBe('Type 2026-09-05 into Deposit date.');
     expect(recordStep('Balance list', 'table', 'balances').sentence).toBe('Read everything in the Balance list.');
   });
+
+  it('records a click on Sign in as a sign-in step that names the sign-in, not a password', () => {
+    const step = recordStep('Sign in', 'button', 'signin', 'Billing read-only');
+    expect(step.verb).toBe('signin');
+    expect(step.sentence).toBe('Sign in with Billing read-only.');
+    expect(JSON.stringify(step)).not.toMatch(/password/i);
+  });
 });

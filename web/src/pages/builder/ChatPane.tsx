@@ -10,6 +10,7 @@ interface Msg {
 }
 
 const PROMPTS = [
+  { label: 'Log in, then open balances', text: 'log in then open the balances screen' },
   { label: 'Every Friday I pull balances over 30 days', text: 'open the balances screen, pull anyone over 30 days, skip payer 99999, export it to the billing share' },
   { label: 'Leave out payment plans', text: 'actually leave out anyone on a payment plan' },
   { label: 'Send them to the print vendor', text: 'download the export and upload it to the print vendor. show me first' },
@@ -19,7 +20,18 @@ const ME = 'max-w-[88%] self-end rounded-[12px_12px_4px_12px] bg-mint px-[13px] 
 const AI = 'max-w-[92%] rounded-[12px_12px_12px_4px] border border-[#F2F4F7] bg-canvas px-[13px] py-[11px] text-[13px] leading-[1.6] text-[#344054]';
 
 /** The assistant column. Every message changes the flow; replies are short plain sentences. */
-export function ChatPane({ steps, onSteps, disabled }: { steps: Step[]; onSteps: (next: Step[], added: string[]) => void; disabled?: boolean }) {
+export function ChatPane({
+  steps,
+  signIns,
+  onSteps,
+  disabled,
+}: {
+  steps: Step[];
+  /** Names of saved sign-ins, so "log in with billing read-only" can pick one. */
+  signIns: string[];
+  onSteps: (next: Step[], added: string[]) => void;
+  disabled?: boolean;
+}) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [draft, setDraft] = useState('');
   const [pending, setPending] = useState<PendingQuestion | null>(null);
@@ -44,7 +56,7 @@ export function ChatPane({ steps, onSteps, disabled }: { steps: Step[]; onSteps:
     setThinking(true);
     setTimeout(() => {
       const before = stepsRef.current;
-      const res = parser.parse(t, before, { pending });
+      const res = parser.parse(t, before, { pending, signIns });
       if (res.steps !== before) {
         const old = new Set(before.map((s) => s.id));
         onSteps(res.steps, res.steps.filter((s) => !old.has(s.id)).map((s) => s.id));

@@ -5,6 +5,7 @@ import type { ActionDef, Kind, Resolves, Step } from './types';
  */
 export const ACTIONS: Record<string, ActionDef> = {
   // --- Happens on the screen ---
+  signin: { label: 'Sign in', tag: 'Sign in', resolves: 'screen', kinds: ['button'], needsValue: true, valueHint: 'Which sign-in?', tmpl: (_t, v) => `Sign in with ${v ?? 'a sign-in'}.` },
   open: { label: 'Open a screen', tag: 'Go to', resolves: 'screen', kinds: ['screen', 'nav'], tmpl: (t) => `Open the ${t} screen.` },
   click: { label: 'Click something', tag: 'Click', resolves: 'screen', kinds: ['button'], tmpl: (t) => `Click ${t}.` },
   type: { label: 'Type into a field', tag: 'Type', resolves: 'screen', kinds: ['field'], needsValue: true, valueHint: 'What should I type?', tmpl: (t, v) => `Type ${v} into ${t}.` },

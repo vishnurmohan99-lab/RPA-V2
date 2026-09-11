@@ -44,7 +44,7 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
   const toast = useToast();
   const [tab, setTab] = useState<'steps' | 'logs'>('steps');
   const [mode, setMode] = useState<'ai' | 'manual'>(start === 'scratch' ? 'manual' : 'ai');
-  const [screen, setScreen] = useState<ScreenId>(start === 'record' ? 'patients' : automation.screen);
+  const [screen, setScreen] = useState<ScreenId>(automation.screen);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [root, setRootState] = useState<HTMLDivElement | null>(null);
   const setRoot = useCallback((el: HTMLDivElement | null) => {
@@ -77,6 +77,7 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
 
   const edges = edgesOf(automation);
   const ordered = orderSteps(automation.steps, edges);
+  const defaultSignIn = state.signIns[0]?.label;
 
   // Older workflows have no wires or positions yet: give them a straight flow on first open.
   useEffect(() => {
@@ -87,6 +88,7 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
   const runner = useRunner({
     automation,
     rules: state.rules,
+    signIns: state.signIns,
     getRoot: () => rootRef.current,
     screen,
     setScreen,
@@ -146,6 +148,13 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
 
   const addVerb = (verb: string) => {
     if (verb === 'branch') return split(insertAt ?? ordered[ordered.length - 1]?.id ?? null);
+    if (verb === 'signin') {
+      // A sign-in step always points at the sign-in page's button; Diane only picks which saved sign-in to use.
+      place(makeStep('signin', 'Sign in', defaultSignIn, { screen: 'signin' }));
+      setRecording(false);
+      setScreen('signin');
+      return;
+    }
     const def = ACTIONS[verb];
     const step = def.resolves === 'screen' ? { ...makeStep(verb, null, undefined, { screen }), sentence: '' } : makeStep(verb, null);
     place(step);
@@ -191,8 +200,10 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
         setRecordPrompt(label);
         return;
       }
-      const step = recordStep(label, kind, screen);
+      const isSignIn = kind === 'button' && /^sign in$/i.test(label);
+      const step = recordStep(label, kind, screen, isSignIn ? defaultSignIn : undefined);
       place(step);
+      if (isSignIn) setScreen('patients');
       if ((kind === 'nav' || kind === 'screen') && step.screen) setScreen(step.screen);
     }
   };
@@ -201,7 +212,7 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
     if (!selected) return;
     const t = text.trim();
     if (!t || t === selected.sentence) return;
-    const guess = parser.parse(t, []).steps.filter((s) => s.verb === selected.verb);
+    const guess = parser.parse(t, [], { signIns: state.signIns.map((s) => s.label) }).steps.filter((s) => s.verb === selected.verb);
     patch(selected.id, (s) => (guess.length === 1 ? reword({ ...s, bind: guess[0].bind ?? s.bind, value: guess[0].value ?? s.value }) : { ...s, sentence: t }));
     setSavedStep(selected.id);
   };
@@ -357,6 +368,7 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
             {mode === 'ai' ? (
               <ChatPane
                 steps={ordered}
+                signIns={state.signIns.map((s) => s.label)}
                 disabled={running}
                 onSteps={(next, added) => {
                   const g = graph();
@@ -444,6 +456,7 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
             <div className="h-[520px]">
               <TenantFrame
                 screen={screen}
+                url={screen === automation.screen && automation.startUrl ? automation.startUrl : undefined}
                 mutated={state.mutated}
                 highlight={highlight}
                 mode={frameMode}
@@ -454,6 +467,7 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
                 rowMarks={runner.marks}
                 rowNotes={runner.notes}
                 uploaded={runner.uploaded}
+                signIn={runner.signedIn}
                 badge={badge}
               />
             </div>
@@ -463,10 +477,15 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
               picking={!!pick}
               saved={!!selected && savedStep === selected.id}
               locked={running}
+              signIns={state.signIns}
               onPointAt={() => selected && setPick({ for: 'step', id: selected.id })}
               onCancelPick={() => setPick(null)}
               onReword={onReword}
-              onValue={(v) => selected && patch(selected.id, (s) => reword({ ...s, value: v }))}
+              onValue={(v) => {
+                if (!selected) return;
+                patch(selected.id, (s) => reword({ ...s, value: v }));
+                setSavedStep(selected.id);
+              }}
             />
           </div>
         </div>

@@ -38,6 +38,14 @@ describe('keyword parser', () => {
     expect(r.steps.find((s) => s.verb === 'upload')?.value).toBe('Statement vendor portal');
   });
 
+  it('adds a sign-in step by name, before opening a screen', () => {
+    const r = keywordParser.parse('log in with billing read-only then open the balances screen', [], { signIns: ['Billing read-only', 'Posting clerk'] });
+    expect(r.steps.map((s) => s.verb)).toEqual(['signin', 'open']);
+    expect(r.steps[0].sentence).toBe('Sign in with Billing read-only.');
+    const later = keywordParser.parse('sign in first', [r.steps[1]], { signIns: ['Posting clerk'] });
+    expect(later.steps.map((s) => s.verb)).toEqual(['signin', 'open']);
+  });
+
   it('replies plainly when it does not understand', () => {
     const r = keywordParser.parse('hmm', []);
     expect(r.steps).toHaveLength(0);

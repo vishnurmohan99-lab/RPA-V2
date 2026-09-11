@@ -22,7 +22,7 @@ import {
   sleep,
   TICK,
 } from '../../domain/runner';
-import type { Automation, HouseRuleState, LogLine, LogTone, RunRecord, ScreenId, Step } from '../../domain/types';
+import type { Automation, HouseRuleState, LogLine, LogTone, RunRecord, ScreenId, SignIn, Step } from '../../domain/types';
 import type { RowMark, TenantHighlight } from '../../tenant/TenantFrame';
 
 export type RunMode = 'dry' | 'run';
@@ -83,6 +83,8 @@ interface Ctx {
 export interface RunnerOptions {
   automation: Automation;
   rules: HouseRuleState[];
+  /** Saved sign-ins. A sign-in step names one of these; the password is never in the app. */
+  signIns: SignIn[];
   getRoot: () => HTMLElement | null;
   screen: ScreenId;
   setScreen: (s: ScreenId) => void;
@@ -127,6 +129,7 @@ export function useRunner(options: RunnerOptions) {
   const [marks, setMarks] = useState<Record<string, RowMark>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [uploaded, setUploaded] = useState<{ name: string; detail: string } | null>(null);
+  const [signedIn, setSignedIn] = useState<{ user: string } | null>(null);
   const [stop, setStop] = useState<StopInfo | null>(null);
   const [approval, setApproval] = useState<Approval | null>(null);
   const [result, setResult] = useState<{ sentence: string; fileName: string | null } | null>(null);
@@ -238,6 +241,15 @@ export function useRunner(options: RunnerOptions) {
   async function perform(step: Step, best: Match<HTMLElement>, root: HTMLElement): Promise<string> {
     const c = ctx.current;
     switch (step.verb) {
+      case 'signin': {
+        const signIn = opt.current.signIns.find((s) => s.label === step.value) ?? opt.current.signIns[0];
+        if (!signIn) return 'Clicked Sign in, but there is no saved sign-in to use yet. Add one under Sign-ins.';
+        setSignedIn({ user: signIn.user });
+        await sleep(TICK);
+        opt.current.setScreen('patients');
+        await sleep(TICK);
+        return `Signed in with ${signIn.label} (${signIn.user}). The password came from the runner's environment file.`;
+      }
       case 'open': {
         const target = SCREEN_BY_LABEL[best.label];
         if (target && target !== opt.current.screen) {
@@ -318,7 +330,7 @@ export function useRunner(options: RunnerOptions) {
         c.kept = ids;
         c.ruled = true;
         const { headers, rows } = buildCsv(ids, c.reads);
-        const name = fileNameFor(a.destination);
+        const name = fileNameFor(a.destination, a.name);
         const blob = new Blob([toCsv(headers, rows)], { type: 'text/csv' });
         c.blob = blob;
         c.fileName = name;
@@ -492,10 +504,14 @@ export function useRunner(options: RunnerOptions) {
     setMarks({});
     setNotes({});
     setUploaded(null);
+    setSignedIn(null);
     setResult(null);
     clearView();
     setPhase('running');
-    if (seq()[0]?.verb === 'open') opt.current.setScreen('patients');
+    // Start where the workflow starts. A flow that opens a screen from PracticeSuite's home begins on Patients, so the move is visible.
+    const a = opt.current.automation;
+    const first = seq()[0];
+    opt.current.setScreen(first?.verb === 'open' && a.screen !== 'signin' ? 'patients' : a.screen);
     await sleep(TICK / 2);
     go(0);
   };
@@ -553,6 +569,7 @@ export function useRunner(options: RunnerOptions) {
     setMarks({});
     setNotes({});
     setUploaded(null);
+    setSignedIn(null);
     setPhase('idle');
   };
 
@@ -573,6 +590,7 @@ export function useRunner(options: RunnerOptions) {
     marks,
     notes,
     uploaded,
+    signedIn,
     stop,
     approval,
     result,

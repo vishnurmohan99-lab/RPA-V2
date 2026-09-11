@@ -1,8 +1,9 @@
+import { KeyRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ACTIONS } from '../../domain/actions';
 import { pct, THRESHOLD, type Match } from '../../domain/binder';
 import { money } from '../../domain/houseRules';
-import type { Step } from '../../domain/types';
+import type { SignIn, Step } from '../../domain/types';
 import { Button, Modal } from '../../shell/ui';
 import type { Approval, Phase, RunMode, StopInfo } from './useRunner';
 
@@ -141,6 +142,7 @@ export function AdjustPanel({
   picking,
   saved,
   locked,
+  signIns,
   onPointAt,
   onCancelPick,
   onReword,
@@ -151,6 +153,7 @@ export function AdjustPanel({
   picking: boolean;
   saved: boolean;
   locked: boolean;
+  signIns: SignIn[];
   onPointAt: () => void;
   onCancelPick: () => void;
   onReword: (text: string) => void;
@@ -190,6 +193,7 @@ export function AdjustPanel({
 
   const def = ACTIONS[step.verb];
   const onScreen = def.resolves === 'screen';
+  const isSignIn = step.verb === 'signin';
 
   const sentence = editing ? (
     <textarea
@@ -205,12 +209,12 @@ export function AdjustPanel({
 
   const actions = (primaryPoint: boolean) => (
     <div className="mt-3.5 flex flex-wrap gap-2">
-      {onScreen && !editing && (
+      {onScreen && !editing && !isSignIn && (
         <button disabled={locked} className={primaryPoint ? PRIMARY : SECONDARY} onClick={onPointAt}>
           Point at it
         </button>
       )}
-      {!editing && step.sentence && (
+      {!editing && step.sentence && !isSignIn && (
         <button
           disabled={locked}
           className={SECONDARY}
@@ -241,8 +245,37 @@ export function AdjustPanel({
     </div>
   );
 
+  const signInPicker = isSignIn ? (
+    <div className="mt-3">
+      {signIns.length ? (
+        <select
+          aria-label="Which sign-in"
+          value={step.value ?? ''}
+          disabled={locked}
+          onChange={(e) => onValue(e.target.value)}
+          className="w-full rounded-card border border-line bg-white px-3 py-2 text-[13px] text-ink focus:border-teal focus:outline-none"
+        >
+          <option value="" disabled>
+            Pick a sign-in
+          </option>
+          {signIns.map((s) => (
+            <option key={s.id} value={s.label}>
+              {s.label} ({s.user})
+            </option>
+          ))}
+        </select>
+      ) : (
+        <div className="text-[12.5px] text-[#7A4A08]">There are no saved sign-ins yet. Add one under Sign-ins.</div>
+      )}
+      <div className="mt-2 flex items-start gap-2 text-[12px] leading-relaxed text-muted">
+        <KeyRound size={13} className="mt-0.5 shrink-0 text-teal" />
+        The workflow keeps the sign-in's name only. The password stays in the runner's own environment file.
+      </div>
+    </div>
+  ) : null;
+
   const valueForm =
-    def.needsValue && !step.value && !locked ? (
+    !isSignIn && def.needsValue && !step.value && !locked ? (
       <form
         className="mt-3 flex gap-2"
         onSubmit={(e) => {
@@ -296,6 +329,7 @@ export function AdjustPanel({
         {sentence}
         <div className="mt-2 text-[12.5px] text-muted">Checking the page…</div>
         {savedChip}
+        {signInPicker}
         {valueForm}
         {actions(false)}
       </div>
@@ -307,6 +341,7 @@ export function AdjustPanel({
       <div className={card}>
         {sentence}
         <div className="mt-2 text-[12.5px] leading-[1.6] text-[#7A4A08]">I can't find {step.bind} on this page, so this step would stop the run and ask you.</div>
+        {signInPicker}
         {actions(true)}
       </div>
     );
@@ -325,6 +360,7 @@ export function AdjustPanel({
           : `I'm only ${pct(match.s)}% sure that's ${match.label}. That's not enough to act on, so this step would stop the run and ask you.`}
       </div>
       {savedChip}
+      {signInPicker}
       {valueForm}
       {actions(!good)}
     </div>

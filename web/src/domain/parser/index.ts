@@ -5,6 +5,8 @@ export type PendingQuestion = 'hold-5000';
 
 export interface ParseContext {
   pending?: PendingQuestion | null;
+  /** Names of the practice's saved sign-ins, so "log in with billing read-only" can pick one. */
+  signIns?: string[];
 }
 
 export interface ParseResult {

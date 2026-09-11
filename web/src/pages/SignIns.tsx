@@ -52,7 +52,10 @@ export function AddSignInModal({ open, onClose, onSaved }: { open: boolean; onCl
 export function SignIns() {
   const { state } = useStore();
   const [adding, setAdding] = useState(false);
-  const usedBy = (id: string) => state.automations.filter((a) => a.credId === id).length;
+  const usedBy = (id: string) => {
+    const label = state.signIns.find((s) => s.id === id)?.label;
+    return state.automations.filter((a) => a.credId === id || a.steps.some((st) => st.verb === 'signin' && st.value === label)).length;
+  };
   return (
     <div>
       <PageHeader
