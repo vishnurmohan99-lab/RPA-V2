@@ -456,7 +456,7 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
             <div className="h-[520px]">
               <TenantFrame
                 screen={screen}
-                url={screen === automation.screen && automation.startUrl ? automation.startUrl : undefined}
+                url={screen === 'signin' && automation.startUrl ? automation.startUrl : undefined}
                 mutated={state.mutated}
                 highlight={highlight}
                 mode={frameMode}
