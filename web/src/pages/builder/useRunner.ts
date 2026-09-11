@@ -3,7 +3,7 @@ import { api } from '../../api/client';
 import { ACTIONS, reword } from '../../domain/actions';
 import { isConfident, pct, resolveIn, type Match, type Resolution } from '../../domain/binder';
 import { parseCondition } from '../../domain/conditions';
-import { fileNameFor, saveBlob, toCsv } from '../../domain/csv';
+import { fileNameFor, toCsv } from '../../domain/csv';
 import { edgesOf, orderSteps } from '../../domain/flow';
 import { applyRules, money, total } from '../../domain/houseRules';
 import { narrate, type RunSummary } from '../../domain/narrative';
@@ -334,7 +334,8 @@ export function useRunner(options: RunnerOptions) {
         const blob = new Blob([toCsv(headers, rows)], { type: 'text/csv' });
         c.blob = blob;
         c.fileName = name;
-        saveBlob(name, blob);
+        // Kept automatically (Supabase, or local disk if that's not configured) — no browser
+        // "Save As" prompt. Diane can open or save a copy any time from the Files page.
         try {
           c.fileId = (await api.keepFile(blob, name, a.id, c.runId)).id;
         } catch {
