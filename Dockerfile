@@ -10,8 +10,10 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# --- runtime: server production deps + built output only ---
-FROM node:22-slim
+# --- runtime: server production deps + built output, on Playwright's own image so the real-
+# browser runner has Chromium and its OS dependencies ready-made. Keep this tag's Playwright
+# version matched to server/package.json's "playwright" version.
+FROM mcr.microsoft.com/playwright:v1.63.0-noble
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3001 \

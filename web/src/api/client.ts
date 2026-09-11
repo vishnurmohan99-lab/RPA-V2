@@ -55,4 +55,17 @@ export const api = {
     if (!res || !res.ok) throw new Offline();
     return res.blob();
   },
+
+  // The real-browser runner: a Playwright session on the server, watched live over a WebSocket.
+  startLiveRun: (automationId: string, mode: 'dry' | 'run') => req<{ runId: string }>('/runs', json('POST', { automationId, mode })),
+  liveAnswer: (runId: string, label: string) => req(`/runs/${runId}/answer`, json('POST', { label })),
+  liveNotNow: (runId: string) => req(`/runs/${runId}/not-now`, json('POST', {})),
+  liveApprove: (runId: string) => req(`/runs/${runId}/approve`, json('POST', {})),
+  liveDecline: (runId: string) => req(`/runs/${runId}/decline`, json('POST', {})),
+  liveStop: (runId: string) => req(`/runs/${runId}/stop`, json('POST', {})),
+  livePick: (runId: string, x: number, y: number) => req<{ label: string; kind: string } | null>(`/runs/${runId}/pick`, json('POST', { x, y })),
+  liveSocketUrl: (runId: string) => {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${location.host}/live?runId=${encodeURIComponent(runId)}`;
+  },
 };

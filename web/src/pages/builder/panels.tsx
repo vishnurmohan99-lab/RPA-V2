@@ -367,6 +367,92 @@ export function AdjustPanel({
   );
 }
 
+export interface LiveBarProps {
+  phase: string;
+  total: number;
+  done: number;
+  currentSentence: string | null;
+  stopQuestion: string | null;
+  stopWant: string | null;
+  hasBest: boolean;
+  picking: boolean;
+  resultSentence: string | null;
+  onStop: () => void;
+  onYes: () => void;
+  onPoint: () => void;
+  onNotNow: () => void;
+  onClose: () => void;
+  onLogs: () => void;
+}
+
+/** The run bar for a real-browser run — same look as RunBar, fed by useLiveRunner's shape instead. */
+export function LiveRunBar(p: LiveBarProps) {
+  if (p.phase === 'idle') return null;
+  const blocked = p.phase === 'attention';
+  const finished = p.phase === 'done';
+  const dryDone = p.phase === 'dryDone';
+  const tone = blocked ? 'border-[#FEDF89] bg-[#FFFAEB]' : finished ? 'border-[#ABEFC6] bg-[#ECFDF3]' : 'border-line bg-white';
+  const done = finished || dryDone ? p.total : p.done;
+
+  let msg: string;
+  if (blocked && p.stopWant) msg = `Stopped — not sure enough about "${p.stopWant}".`;
+  else if (p.phase === 'approval') msg = 'Waiting for you to approve before anything leaves the browser.';
+  else if ((finished || dryDone) && p.resultSentence) msg = p.resultSentence;
+  else if (p.phase === 'connecting') msg = 'Opening a real browser…';
+  else msg = `Running step ${Math.min(p.done + 1, p.total || p.done + 1)} of ${p.total || '?'}${p.currentSentence ? ` — ${p.currentSentence}` : ''}`;
+
+  return (
+    <div className={`flex animate-card-in flex-wrap items-center gap-3.5 rounded-[10px] border px-[15px] py-[13px] ${tone}`}>
+      <div className="min-w-0 flex-[1_1_260px]">
+        <div className={`text-[12.5px] font-semibold leading-normal ${blocked ? 'text-[#7A4A08]' : finished ? 'text-[#067647]' : 'text-ink'}`}>{msg}</div>
+        {blocked && (
+          <div className="mt-1 text-[12.5px] leading-normal text-[#7A4A08]">
+            {p.picking ? 'Click the right thing in the real browser below.' : p.stopQuestion} Nothing was read and nothing was saved.
+          </div>
+        )}
+        {dryDone && <div className="mt-1 text-xs text-muted">Preview only. Nothing downloaded and nothing left the browser.</div>}
+        {p.total > 0 && (
+          <div className="mt-[9px] h-[5px] overflow-hidden rounded-full bg-[#F2F4F7]">
+            <div className={`h-full rounded-full transition-[width] duration-[400ms] ${blocked ? 'bg-[#DC9A15]' : 'bg-teal'}`} style={{ width: `${(done / p.total) * 100}%` }} />
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {blocked && !p.picking && p.hasBest && (
+          <button className={PRIMARY} onClick={p.onYes}>
+            Yes, that's it
+          </button>
+        )}
+        {blocked && !p.picking && (
+          <button className={p.hasBest ? SECONDARY : PRIMARY} onClick={p.onPoint}>
+            Point at it
+          </button>
+        )}
+        {blocked && !p.picking && (
+          <button className={SECONDARY} onClick={p.onNotNow}>
+            Not now
+          </button>
+        )}
+        {(p.phase === 'running' || p.phase === 'approval' || p.phase === 'connecting') && (
+          <button className={SECONDARY} onClick={p.onStop}>
+            Stop
+          </button>
+        )}
+        {finished && (
+          <button className={SECONDARY} onClick={p.onLogs}>
+            Run logs
+          </button>
+        )}
+        {(finished || dryDone) && (
+          <button className={SECONDARY} onClick={p.onClose}>
+            Close
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ApprovalModal({ approval, onApprove, onDecline }: { approval: Approval; onApprove: () => void; onDecline: () => void }) {
   const rows: [string, number][] = [
     ['Rows I looked at', approval.read],

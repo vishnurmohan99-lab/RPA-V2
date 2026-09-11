@@ -1,0 +1,108 @@
+import { Crosshair, Globe } from 'lucide-react';
+import { useRef } from 'react';
+import type { LiveHighlight, LiveLog } from './useLiveRunner';
+
+const TONE_BORDER = { teal: 'border-teal', red: 'border-red', amber: 'border-amber' } as const;
+const TONE_FILL = {
+  teal: 'bg-teal/5 shadow-[0_0_0_4px_rgba(14,124,107,0.12)]',
+  red: 'bg-red/5 shadow-[0_0_0_4px_rgba(180,35,24,0.12)]',
+  amber: 'bg-amber/5 shadow-[0_0_0_4px_rgba(181,71,8,0.12)]',
+} as const;
+const TONE_TAG = { teal: 'bg-teal text-white', red: 'bg-red text-white', amber: 'bg-amber text-white' } as const;
+
+const LOG_DOT = { ok: 'bg-[#067647]', warn: 'bg-[#B54708]', err: 'bg-[#B42318]', info: 'bg-body' } as const;
+
+/**
+ * The browser pane for a real Playwright session: a live screenshot feed (scaled to a fixed
+ * 1280×800 viewport, same as the runner launches) with a box overlay positioned from the
+ * server's real element coordinates, plus the running log. Clicking while `picking` sends the
+ * normalized click point back to the server so it can tell what real element is there.
+ */
+export function LiveBrowserPane({
+  screenshot,
+  highlight,
+  logs,
+  picking,
+  onPick,
+  startUrl,
+}: {
+  screenshot: string | null;
+  highlight: LiveHighlight | null;
+  logs: LiveLog[];
+  picking: boolean;
+  onPick: (xPct: number, yPct: number) => void;
+  startUrl: string;
+}) {
+  const imgRef = useRef<HTMLImageElement>(null);
+  const VIEW_W = 1280;
+  const VIEW_H = 800;
+
+  const onClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!picking || !imgRef.current) return;
+    // The wrapper is CSS-locked to the screenshot's own aspect ratio (see below), so its box IS
+    // the image's drawn rect — no object-contain letterbox math needed to map a click correctly.
+    const r = imgRef.current.getBoundingClientRect();
+    onPick((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-line bg-white">
+      <div className="flex items-center gap-2.5 border-b border-line bg-[#FCFCFD] px-3.5 py-2.5">
+        <Globe size={13} className="text-muted" />
+        <div className="min-w-0 flex-1 truncate rounded-md bg-[#F2F4F7] px-2.5 py-[5px] text-[11.5px] text-muted">{startUrl}</div>
+        <span className="whitespace-nowrap text-[11.5px] font-semibold text-teal">Real browser</span>
+      </div>
+
+      <div className="flex min-h-0 flex-[2] items-center justify-center overflow-hidden bg-[#0B0D0F]">
+        {screenshot ? (
+          // Locked to the screenshot's own aspect ratio so this box IS the image's drawn rect —
+          // no object-contain letterbox math needed to place the overlay box or map a click.
+          <div
+            className={`relative max-h-full max-w-full ${picking ? 'cursor-crosshair' : ''}`}
+            style={{ aspectRatio: `${VIEW_W} / ${VIEW_H}`, width: '100%', height: '100%' }}
+            onClick={onClick}
+          >
+            <img ref={imgRef} src={screenshot} alt="Live view of the real page" className="h-full w-full" />
+            {highlight?.box && (
+              <div
+                className="pointer-events-none absolute"
+                style={{
+                  left: `${(highlight.box.x / VIEW_W) * 100}%`,
+                  top: `${(highlight.box.y / VIEW_H) * 100}%`,
+                  width: `${(highlight.box.width / VIEW_W) * 100}%`,
+                  height: `${(highlight.box.height / VIEW_H) * 100}%`,
+                }}
+              >
+                <div className={`h-full w-full rounded-md border-2 ${TONE_BORDER[highlight.tone]} ${TONE_FILL[highlight.tone]}`} />
+                {highlight.label && (
+                  <div className={`absolute -top-6 right-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[10.5px] font-bold ${TONE_TAG[highlight.tone]}`}>
+                    {highlight.label} · {Math.round((highlight.s ?? 0) * 100)}% sure
+                  </div>
+                )}
+              </div>
+            )}
+            {picking && (
+              <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center p-2">
+                <span className="flex items-center gap-1.5 rounded-full bg-ink/90 px-3 py-1 text-[11.5px] font-medium text-white">
+                  <Crosshair size={13} /> Click the right thing on the real page
+                </span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex h-full items-center justify-center text-[12.5px] text-white/60">Connecting to the real browser…</div>
+        )}
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto border-t border-line px-3 py-2">
+        {logs.length === 0 && <div className="px-1 py-2 text-[12px] text-muted">The run's log appears here as it happens.</div>}
+        {logs.map((l, i) => (
+          <div key={i} className="flex items-start gap-2 py-1">
+            <span className={`mt-1.5 block h-1.5 w-1.5 shrink-0 rounded-full ${LOG_DOT[l.tone]}`} />
+            <span className="text-[12px] leading-[1.5] text-body">{l.text}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

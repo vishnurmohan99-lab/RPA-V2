@@ -11,10 +11,12 @@ import { Button, Modal } from '../../shell/ui';
 import { TenantFrame, type TenantHighlight } from '../../tenant/TenantFrame';
 import { ChatPane } from './ChatPane';
 import { FlowCanvas, type PlusMenu } from './FlowCanvas';
+import { LiveBrowserPane } from './LiveBrowserPane';
 import { ManualPicker } from './ManualPicker';
-import { AdjustPanel, ApprovalModal, RecordStrip, RunBar } from './panels';
+import { AdjustPanel, ApprovalModal, LiveRunBar, RecordStrip, RunBar } from './panels';
 import { PreflightProbe } from './Preflight';
 import { RunLogs } from './RunLogs';
+import { useLiveRunner } from './useLiveRunner';
 import { useRunner } from './useRunner';
 
 type Start = 'describe' | 'record' | 'scratch';
@@ -63,6 +65,7 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
   const [confirmRun, setConfirmRun] = useState(false);
   const [savedPill, setSavedPill] = useState(false);
   const [savedStep, setSavedStep] = useState<string | null>(null);
+  const [runTarget, setRunTarget] = useState<'screen' | 'browser'>('screen');
 
   const save = useCallback((a: Automation) => dispatch({ type: 'upsertAutomation', automation: a }), [dispatch]);
   const latest = useRef(automation);
@@ -95,7 +98,8 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
     saveAutomation: save,
     addRun: (r) => dispatch({ type: 'addRun', run: r }),
   });
-  const running = runner.busy;
+  const live = useLiveRunner(automation.id);
+  const running = runner.busy || live.busy;
 
   const selected = automation.steps.find((s) => s.id === selectedId) ?? null;
 
@@ -226,14 +230,18 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
 
   const run = () => {
     clearForRun();
+    if (runTarget === 'browser') return live.start('run');
     if (!automation.cleanDryRun) setConfirmRun(true);
     else runner.start('run');
   };
 
   const dry = () => {
     clearForRun();
+    if (runTarget === 'browser') return live.start('dry');
     runner.start('dry');
   };
+
+  const stopRun = () => (runTarget === 'browser' ? live.cancel() : runner.cancel());
 
   const saveNow = () => {
     save({ ...latest.current });
@@ -332,8 +340,18 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
           <button className={`${HEADER_BTN} font-semibold text-[#344054]`} onClick={saveNow}>
             Save
           </button>
+          <select
+            aria-label="Run in"
+            value={runTarget}
+            disabled={running}
+            onChange={(e) => setRunTarget(e.target.value as 'screen' | 'browser')}
+            className={`${HEADER_BTN} appearance-none pr-7`}
+          >
+            <option value="screen">Run in: This screen</option>
+            <option value="browser">Run in: Real browser</option>
+          </select>
           {running ? (
-            <button className={HEADER_BTN} onClick={runner.cancel}>
+            <button className={HEADER_BTN} onClick={stopRun}>
               Stop
             </button>
           ) : (
@@ -417,81 +435,128 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
           />
 
           <div className="col-span-2 flex flex-col gap-3.5 bg-[#F2F4F7] p-4">
-            <RunBar
-              phase={runner.phase}
-              mode={runner.mode}
-              total={ordered.length}
-              done={doneCount}
-              current={current}
-              stop={runner.stop}
-              result={runner.result}
-              picking={pick?.for === 'stop'}
-              onStop={runner.cancel}
-              onYes={() => {
-                if (runner.stop?.best) runner.answer(runner.stop.best.label);
-                toast.show('Saved. Carrying on');
-              }}
-              onPoint={() => setPick({ for: 'stop' })}
-              onNotNow={runner.notNow}
-              onClose={runner.dismiss}
-              onLogs={() => {
-                runner.dismiss();
-                setTab('logs');
-              }}
-            />
-            {recording && !running && (
-              <RecordStrip
-                prompt={recordPrompt}
-                onDone={() => {
-                  setRecording(false);
-                  setRecordPrompt(null);
-                }}
-                onCancelPrompt={() => setRecordPrompt(null)}
-                onPrompt={(v) => {
-                  place(recordStep(recordPrompt!, 'field', screen, v));
-                  setRecordPrompt(null);
-                }}
-              />
+            {live.phase !== 'idle' ? (
+              <>
+                <LiveRunBar
+                  phase={live.phase}
+                  total={ordered.length}
+                  done={live.doneStepIds.size}
+                  currentSentence={ordered.find((s) => s.id === live.activeStepId)?.sentence ?? null}
+                  stopQuestion={live.attention?.question ?? null}
+                  stopWant={live.attention?.want ?? null}
+                  hasBest={!!live.attention?.bestLabel}
+                  picking={live.picking}
+                  resultSentence={live.result?.sentence ?? null}
+                  onStop={live.cancel}
+                  onYes={() => live.attention?.bestLabel && live.answer(live.attention.bestLabel)}
+                  onPoint={() => live.setPicking(true)}
+                  onNotNow={live.notNow}
+                  onClose={live.dismiss}
+                  onLogs={() => {
+                    live.dismiss();
+                    setTab('logs');
+                  }}
+                />
+                <div className="h-[520px]">
+                  <LiveBrowserPane
+                    screenshot={live.screenshot}
+                    highlight={live.highlight}
+                    logs={live.logs}
+                    picking={live.picking}
+                    onPick={(x, y) => live.pick(x, y, 1280, 800)}
+                    startUrl={automation.startUrl || 'https://example.com'}
+                  />
+                </div>
+                <div className="rounded-[10px] border border-line bg-white p-[18px] text-[12.5px] leading-[1.6] text-muted">
+                  Driving a real browser on the server. A step's target isn't checked until the run reaches it — there's nothing to preview here before you press Run or Dry run.
+                </div>
+              </>
+            ) : (
+              <>
+                <RunBar
+                  phase={runner.phase}
+                  mode={runner.mode}
+                  total={ordered.length}
+                  done={doneCount}
+                  current={current}
+                  stop={runner.stop}
+                  result={runner.result}
+                  picking={pick?.for === 'stop'}
+                  onStop={runner.cancel}
+                  onYes={() => {
+                    if (runner.stop?.best) runner.answer(runner.stop.best.label);
+                    toast.show('Saved. Carrying on');
+                  }}
+                  onPoint={() => setPick({ for: 'stop' })}
+                  onNotNow={runner.notNow}
+                  onClose={runner.dismiss}
+                  onLogs={() => {
+                    runner.dismiss();
+                    setTab('logs');
+                  }}
+                />
+                {recording && !running && (
+                  <RecordStrip
+                    prompt={recordPrompt}
+                    onDone={() => {
+                      setRecording(false);
+                      setRecordPrompt(null);
+                    }}
+                    onCancelPrompt={() => setRecordPrompt(null)}
+                    onPrompt={(v) => {
+                      place(recordStep(recordPrompt!, 'field', screen, v));
+                      setRecordPrompt(null);
+                    }}
+                  />
+                )}
+                <div className="h-[520px]">
+                  <TenantFrame
+                    screen={screen}
+                    url={screen === 'signin' && automation.startUrl ? automation.startUrl : undefined}
+                    mutated={state.mutated}
+                    highlight={highlight}
+                    mode={frameMode}
+                    pickKinds={pickKinds}
+                    onPick={onPick}
+                    onNavigate={setScreen}
+                    rootRef={setRoot}
+                    rowMarks={runner.marks}
+                    rowNotes={runner.notes}
+                    uploaded={runner.uploaded}
+                    signIn={runner.signedIn}
+                    badge={badge}
+                  />
+                </div>
+                <AdjustPanel
+                  step={pick?.for === 'stop' ? stopStep : selected}
+                  match={inspect}
+                  picking={!!pick}
+                  saved={!!selected && savedStep === selected.id}
+                  locked={running}
+                  signIns={state.signIns}
+                  onPointAt={() => selected && setPick({ for: 'step', id: selected.id })}
+                  onCancelPick={() => setPick(null)}
+                  onReword={onReword}
+                  onValue={(v) => {
+                    if (!selected) return;
+                    patch(selected.id, (s) => reword({ ...s, value: v }));
+                    setSavedStep(selected.id);
+                  }}
+                />
+              </>
             )}
-            <div className="h-[520px]">
-              <TenantFrame
-                screen={screen}
-                url={screen === 'signin' && automation.startUrl ? automation.startUrl : undefined}
-                mutated={state.mutated}
-                highlight={highlight}
-                mode={frameMode}
-                pickKinds={pickKinds}
-                onPick={onPick}
-                onNavigate={setScreen}
-                rootRef={setRoot}
-                rowMarks={runner.marks}
-                rowNotes={runner.notes}
-                uploaded={runner.uploaded}
-                signIn={runner.signedIn}
-                badge={badge}
-              />
-            </div>
-            <AdjustPanel
-              step={pick?.for === 'stop' ? stopStep : selected}
-              match={inspect}
-              picking={!!pick}
-              saved={!!selected && savedStep === selected.id}
-              locked={running}
-              signIns={state.signIns}
-              onPointAt={() => selected && setPick({ for: 'step', id: selected.id })}
-              onCancelPick={() => setPick(null)}
-              onReword={onReword}
-              onValue={(v) => {
-                if (!selected) return;
-                patch(selected.id, (s) => reword({ ...s, value: v }));
-                setSavedStep(selected.id);
-              }}
-            />
           </div>
         </div>
       )}
 
       {runner.phase === 'approval' && runner.approval && <ApprovalModal approval={runner.approval} onApprove={runner.approve} onDecline={runner.decline} />}
+      {live.phase === 'approval' && live.approval && (
+        <ApprovalModal
+          approval={{ ...live.approval, uploads: live.approval.edges.some((e) => e.toLowerCase().includes('upload')) }}
+          onApprove={live.approve}
+          onDecline={live.decline}
+        />
+      )}
 
       <Modal open={confirmRun} onClose={() => setConfirmRun(false)} title="Try a dry run first?" subtitle="A dry run shows you exactly what would happen, and nothing leaves the browser." width={460}>
         <div className="flex justify-end gap-2">

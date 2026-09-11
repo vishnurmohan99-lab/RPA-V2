@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'node:path';
 import { DESTINATIONS, destinationByLabelOrId } from './destinations.js';
 import { FileStore } from './files.js';
+import { mountRunner } from './runner/mount.js';
 import { isSafeId, JsonStore, validateSignIns } from './store.js';
 
 export interface Dirs {
@@ -97,13 +98,16 @@ export function createApp(dirs: Dirs) {
     res.json({ ok: true });
   });
 
+  // The real-browser runner: POST /api/runs to start one, /live?runId=... (WebSocket) to watch it.
+  const handleUpgrade = mountRunner(app, store, files);
+
   // Calm errors only: never a stack trace to the client.
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     console.error(err);
     res.status(500).json({ message: 'Something went wrong on the runner. Nothing was changed.' });
   });
 
-  return { app, store, files };
+  return { app, store, files, handleUpgrade };
 }
 
 export const defaultDirs = (root: string): Dirs => ({

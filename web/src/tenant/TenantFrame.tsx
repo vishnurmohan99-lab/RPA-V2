@@ -163,6 +163,11 @@ export function TenantFrame(props: TenantProps) {
 
   const onClickCapture = (e: React.MouseEvent) => {
     if (!picking) return;
+    // Diane usually needs to get to the right screen before pointing at the thing on it — let a
+    // nav click through to its own onNavigate handler below instead of swallowing it, unless the
+    // step being pointed at is itself a screen/nav target.
+    const navEl = (e.target as HTMLElement).closest<HTMLElement>('[data-kind="nav"]');
+    if (navEl && !(pickKinds && pickKinds.includes('nav'))) return;
     e.preventDefault();
     e.stopPropagation();
     const el = pickable(e.target);
@@ -172,7 +177,10 @@ export function TenantFrame(props: TenantProps) {
     }
   };
 
-  const inPS = screen !== 'upload' && screen !== 'signin';
+  // The nav rail is Atlas's own building aid, not a simulation of real access control — Diane can
+  // still preview and point at Balances/Payments/Patients while parked on the sign-in mock. The
+  // third-party upload screen genuinely has no such nav, so that one stays without it.
+  const inPS = screen !== 'upload';
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-line bg-white">
