@@ -129,6 +129,20 @@ export function mountRunner(app: Express, store: Store, files: AppFileStore) {
     });
   });
 
+  app.post('/api/browse/:browseId/type', (req, res) => {
+    (async () => {
+      const live = isSafeId(req.params.browseId) ? runs.get(req.params.browseId) : undefined;
+      if (!live || !(live.session instanceof BrowseSession)) return res.status(404).json({ message: 'That browser is not open any more.' });
+      const { value } = req.body ?? {};
+      if (typeof value !== 'string') return res.status(400).json({ message: 'No value given.' });
+      await live.session.type(value);
+      res.json({ ok: true });
+    })().catch((e) => {
+      console.error('[atlas] /api/browse/type failed:', e);
+      if (!res.headersSent) res.status(500).json({ message: 'Something went wrong typing that in.' });
+    });
+  });
+
   app.post('/api/browse/:browseId/stop', (req, res) => {
     const live = isSafeId(req.params.browseId) ? runs.get(req.params.browseId) : undefined;
     if (!live || !(live.session instanceof BrowseSession)) return res.status(404).json({ message: 'That browser is not open any more.' });

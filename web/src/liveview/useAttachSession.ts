@@ -48,5 +48,12 @@ export function useAttachSession(kind: AttachKind, id: string) {
     else api.liveScroll(id, deltaY).catch(() => {});
   };
 
-  return { screenshot, highlight, logs, connected, click, scroll };
+  // Fills whatever field was last clicked, for real, on the real page — so what Diane sees is
+  // what gets saved. Only meaningful while authoring (kind 'browse'); a run's steps already have
+  // their values, so there's nothing to type during one.
+  const type = async (value: string) => {
+    if (kind === 'browse') await api.browseType(id, value).catch(() => {});
+  };
+
+  return { screenshot, highlight, logs, connected, click, scroll, type };
 }

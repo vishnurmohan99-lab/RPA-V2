@@ -205,7 +205,10 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
     if (id) setInsertAt(id);
   };
 
-  const onPick = (label: string, kind: Kind) => {
+  // `value` is only ever set for a field click made in the live-view popup tab (see
+  // LiveViewWindow.tsx) — it already asked "what should I type" right there and filled it on the
+  // real page for real, so there's no need for the old in-builder record-prompt round-trip.
+  const onPick = (label: string, kind: Kind, value?: string) => {
     if (pick?.for === 'stop') {
       setPick(null);
       runner.answer(label);
@@ -221,12 +224,12 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
       return;
     }
     if (recording) {
-      if (kind === 'field') {
+      if (kind === 'field' && value === undefined) {
         setRecordPrompt(label);
         return;
       }
       const isSignIn = kind === 'button' && /^sign in$/i.test(label);
-      const step = recordStep(label, kind, screen, isSignIn ? defaultSignIn : undefined);
+      const step = recordStep(label, kind, screen, kind === 'field' ? value : isSignIn ? defaultSignIn : undefined);
       place(step);
       if (isSignIn) setScreen('patients');
       if ((kind === 'nav' || kind === 'screen') && step.screen) setScreen(step.screen);
@@ -260,22 +263,22 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
   // Routes a click made in the popup tab back into the same recording / point-at-it / stop-and-
   // ask-answer logic a click on the builder's own (now-removed) inline pane used to trigger. Kept
   // in a ref so the channel subscription below doesn't need to reopen every time these change.
-  const hitHandlerRef = useRef((_label: string, _kind: Kind) => {});
-  hitHandlerRef.current = (label, kind) => {
+  const hitHandlerRef = useRef((_label: string, _kind: Kind, _value?: string) => {});
+  hitHandlerRef.current = (label, kind, value) => {
     if (live.phase === 'attention') {
       live.answer(label);
       return;
     }
     if (live.phase !== 'idle') return;
-    onPick(label, kind);
+    onPick(label, kind, value);
   };
 
   useEffect(() => {
     if (!activeLiveId) return;
     const channel = new BroadcastChannel(liveChannelName(activeLiveId));
     channel.onmessage = (ev) => {
-      const { type, label, kind } = ev.data ?? {};
-      if (type === 'hit' && typeof label === 'string') hitHandlerRef.current(label, kind as Kind);
+      const { type, label, kind, value } = ev.data ?? {};
+      if (type === 'hit' && typeof label === 'string') hitHandlerRef.current(label, kind as Kind, value);
     };
     return () => channel.close();
   }, [activeLiveId]);

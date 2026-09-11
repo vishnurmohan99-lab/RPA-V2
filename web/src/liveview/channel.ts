@@ -5,4 +5,6 @@ export interface LiveHitMessage {
   type: 'hit';
   label: string;
   kind: string;
+  /** Set only for a field: what Diane actually typed in the popup, filled live on the real page too. */
+  value?: string;
 }

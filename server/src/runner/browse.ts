@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { elementAt } from './resolve.js';
+import { elementAt, locatorFor } from './resolve.js';
 import type { Kind } from './types.js';
 
 /**
@@ -17,6 +17,8 @@ export class BrowseSession extends EventEmitter {
   private page: Page | null = null;
   private screenshotTimer: ReturnType<typeof setInterval> | null = null;
   private closed = false;
+  /** The last field clicked, so a follow-up `type()` call knows what to fill without the client having to track a ref. */
+  private lastFieldRef: string | null = null;
 
   constructor(
     readonly id: string,
@@ -63,10 +65,20 @@ export class BrowseSession extends EventEmitter {
     if (!this.page) return null;
     const hit = await elementAt(this.page, x, y);
     if (!hit) return null;
+    this.lastFieldRef = hit.kind === 'field' && hit.ref ? hit.ref : null;
     await this.page.mouse.click(x, y).catch(() => {});
     await this.page.waitForLoadState('domcontentloaded', { timeout: 4000 }).catch(() => {});
     await this.snap();
     return { label: hit.label, kind: hit.kind };
+  }
+
+  /** Fills the field last clicked — real, live typing on the real page, so what Diane sees on screen is what gets saved into the step. */
+  async type(value: string) {
+    if (!this.page || !this.lastFieldRef) return;
+    await locatorFor(this.page, this.lastFieldRef)
+      .fill(value)
+      .catch(() => {});
+    await this.snap();
   }
 
   /** Scrolls the real page — the 1280×800 screenshot is only ever one screenful, so this is how Diane sees the rest of a taller page. */
