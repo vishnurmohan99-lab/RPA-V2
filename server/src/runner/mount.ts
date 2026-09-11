@@ -7,10 +7,11 @@ import type { AppFileStore, Store } from '../db/index.js';
 import type { Destination } from '../destinations.js';
 import { destinationByLabelOrId } from '../destinations.js';
 import { isSafeId } from '../store.js';
+import { BrowseSession } from './browse.js';
 import { RunSession, type RunnerAutomation, type RunnerRuleState, type RunnerSignIn, type RunMode } from './session.js';
 
 interface Live {
-  session: RunSession;
+  session: RunSession | BrowseSession;
   events: unknown[]; // buffered until a socket attaches; screenshots are pruned, everything else kept
   sockets: Set<WebSocket>;
 }
@@ -81,13 +82,53 @@ export function mountRunner(app: Express, store: Store, files: AppFileStore) {
     });
   });
 
+  app.post('/api/browse', (req, res) => {
+    (async () => {
+      const { url } = req.body ?? {};
+      if (typeof url !== 'string' || !url) return res.status(400).json({ message: 'I need an address to open.' });
+
+      const id = `browse-${crypto.randomUUID().slice(0, 8)}`;
+      const session = new BrowseSession(id, url);
+      const live: Live = { session, events: [], sockets: new Set() };
+      runs.set(id, live);
+      session.on('event', (e) => broadcast(id, e));
+      session.start();
+
+      res.json({ browseId: id });
+    })().catch((e) => {
+      console.error('[atlas] /api/browse failed:', e);
+      if (!res.headersSent) res.status(500).json({ message: 'Could not open a live browser. Nothing was changed.' });
+    });
+  });
+
+  app.post('/api/browse/:browseId/click', (req, res) => {
+    (async () => {
+      const live = isSafeId(req.params.browseId) ? runs.get(req.params.browseId) : undefined;
+      if (!live || !(live.session instanceof BrowseSession)) return res.status(404).json({ message: 'That browser is not open any more.' });
+      const { x, y } = req.body ?? {};
+      if (typeof x !== 'number' || typeof y !== 'number') return res.status(400).json({ message: 'No point given.' });
+      const hit = await live.session.click(x, y);
+      res.json(hit);
+    })().catch((e) => {
+      console.error('[atlas] /api/browse/click failed:', e);
+      if (!res.headersSent) res.status(500).json({ message: 'Something went wrong reading the page.' });
+    });
+  });
+
+  app.post('/api/browse/:browseId/stop', (req, res) => {
+    const live = isSafeId(req.params.browseId) ? runs.get(req.params.browseId) : undefined;
+    if (!live || !(live.session instanceof BrowseSession)) return res.status(404).json({ message: 'That browser is not open any more.' });
+    live.session.stop().finally(() => runs.delete(req.params.browseId));
+    res.json({ ok: true });
+  });
+
   const find = (req: { params: { runId: string } }, res: { status: (n: number) => { json: (b: unknown) => void } }) => {
     const live = isSafeId(req.params.runId) ? runs.get(req.params.runId) : undefined;
-    if (!live) {
+    if (!live || !(live.session instanceof RunSession)) {
       res.status(404).json({ message: 'That run is not here any more.' });
       return null;
     }
-    return live;
+    return live as { session: RunSession; events: unknown[]; sockets: Set<WebSocket> };
   };
 
   app.post('/api/runs/:runId/answer', (req, res) => {

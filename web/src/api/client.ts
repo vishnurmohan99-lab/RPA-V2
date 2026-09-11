@@ -68,4 +68,10 @@ export const api = {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${proto}//${location.host}/live?runId=${encodeURIComponent(runId)}`;
   },
+
+  // A steps-free live browser used only while authoring, so Diane can see and click the
+  // real Starting URL instead of the synthetic mockup — same WebSocket mechanism as a run.
+  startBrowse: (url: string) => req<{ browseId: string }>('/browse', json('POST', { url })),
+  browseClick: (browseId: string, x: number, y: number) => req<{ label: string; kind: string } | null>(`/browse/${browseId}/click`, json('POST', { x, y })),
+  stopBrowse: (browseId: string) => req(`/browse/${browseId}/stop`, json('POST', {})),
 };

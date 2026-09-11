@@ -9,6 +9,7 @@ import { useStore } from '../../state/store';
 import { useToast } from '../../shell/Toast';
 import { Button, Modal } from '../../shell/ui';
 import { TenantFrame, type TenantHighlight } from '../../tenant/TenantFrame';
+import { BrowsePane } from './BrowsePane';
 import { ChatPane } from './ChatPane';
 import { FlowCanvas, type PlusMenu } from './FlowCanvas';
 import { LiveBrowserPane } from './LiveBrowserPane';
@@ -16,6 +17,7 @@ import { ManualPicker } from './ManualPicker';
 import { AdjustPanel, ApprovalModal, LiveRunBar, RecordStrip, RunBar } from './panels';
 import { PreflightProbe } from './Preflight';
 import { RunLogs } from './RunLogs';
+import { useBrowseSession } from './useBrowseSession';
 import { useLiveRunner } from './useLiveRunner';
 import { useRunner } from './useRunner';
 
@@ -100,6 +102,10 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
   });
   const live = useLiveRunner(automation.id);
   const running = runner.busy || live.busy;
+  // Shown instead of the synthetic mockup whenever "Run in: Real browser" is picked and nothing
+  // is actively running — the real Starting URL, live, so Diane can click it to record steps.
+  const browseUrl = runTarget === 'browser' && !running && tab === 'steps' ? automation.startUrl || 'about:blank' : null;
+  const browse = useBrowseSession(browseUrl);
 
   const selected = automation.steps.find((s) => s.id === selectedId) ?? null;
 
@@ -210,6 +216,14 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
       if (isSignIn) setScreen('patients');
       if ((kind === 'nav' || kind === 'screen') && step.screen) setScreen(step.screen);
     }
+  };
+
+  // A click on the live real page: `browse.click` both tells us what's there and actually
+  // clicks it (so a nav link or button really navigates), then it's handled exactly like a
+  // click on the synthetic mockup — same recording / point-at-it branches in onPick.
+  const onBrowseClick = async (xPct: number, yPct: number) => {
+    const hit = await browse.click(xPct, yPct);
+    if (hit) onPick(hit.label, hit.kind);
   };
 
   const onReword = (text: string) => {
@@ -510,22 +524,34 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
                   />
                 )}
                 <div className="h-[520px]">
-                  <TenantFrame
-                    screen={screen}
-                    url={screen === 'signin' && automation.startUrl ? automation.startUrl : undefined}
-                    mutated={state.mutated}
-                    highlight={highlight}
-                    mode={frameMode}
-                    pickKinds={pickKinds}
-                    onPick={onPick}
-                    onNavigate={setScreen}
-                    rootRef={setRoot}
-                    rowMarks={runner.marks}
-                    rowNotes={runner.notes}
-                    uploaded={runner.uploaded}
-                    signIn={runner.signedIn}
-                    badge={badge}
-                  />
+                  {runTarget === 'browser' ? (
+                    <BrowsePane
+                      screenshot={browse.screenshot}
+                      connecting={browse.connecting}
+                      error={browse.error}
+                      url={automation.startUrl || 'https://example.com'}
+                      recording={recording || !!pick}
+                      onClick={onBrowseClick}
+                      badge={badge}
+                    />
+                  ) : (
+                    <TenantFrame
+                      screen={screen}
+                      url={screen === 'signin' && automation.startUrl ? automation.startUrl : undefined}
+                      mutated={state.mutated}
+                      highlight={highlight}
+                      mode={frameMode}
+                      pickKinds={pickKinds}
+                      onPick={onPick}
+                      onNavigate={setScreen}
+                      rootRef={setRoot}
+                      rowMarks={runner.marks}
+                      rowNotes={runner.notes}
+                      uploaded={runner.uploaded}
+                      signIn={runner.signedIn}
+                      badge={badge}
+                    />
+                  )}
                 </div>
                 <AdjustPanel
                   step={pick?.for === 'stop' ? stopStep : selected}
