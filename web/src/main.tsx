@@ -16,6 +16,16 @@ const liveId = params.get('id');
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 root.render(
   <React.StrictMode>
-    {(live === 'browse' || live === 'run') && liveId ? <LiveViewWindow kind={live} id={liveId} url={params.get('url') ?? ''} /> : <App />}
+    {(live === 'browse' || live === 'run') && liveId ? (
+      <LiveViewWindow
+        kind={live}
+        id={liveId}
+        url={params.get('url') ?? ''}
+        signInId={params.get('signInId') ?? null}
+        signInLabel={params.get('signInLabel') ?? null}
+      />
+    ) : (
+      <App />
+    )}
   </React.StrictMode>,
 );

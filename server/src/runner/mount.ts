@@ -8,6 +8,7 @@ import type { Destination } from '../destinations.js';
 import { destinationByLabelOrId } from '../destinations.js';
 import { isSafeId } from '../store.js';
 import { BrowseSession } from './browse.js';
+import { setPasswordOverride } from './credentials.js';
 import { RunSession, type RunnerAutomation, type RunnerRuleState, type RunnerSignIn, type RunMode } from './session.js';
 
 interface Live {
@@ -140,6 +141,25 @@ export function mountRunner(app: Express, store: Store, files: AppFileStore) {
     })().catch((e) => {
       console.error('[atlas] /api/browse/type failed:', e);
       if (!res.headersSent) res.status(500).json({ message: 'Something went wrong typing that in.' });
+    });
+  });
+
+  app.post('/api/browse/:browseId/credential', (req, res) => {
+    (async () => {
+      const live = isSafeId(req.params.browseId) ? runs.get(req.params.browseId) : undefined;
+      if (!live || !(live.session instanceof BrowseSession)) return res.status(404).json({ message: 'That browser is not open any more.' });
+      const { signInId, value } = req.body ?? {};
+      if (typeof signInId !== 'string' || !isSafeId(signInId) || typeof value !== 'string' || !value) {
+        return res.status(400).json({ message: 'No sign-in or password given.' });
+      }
+      // In-memory only, this server process, this session — see credentials.ts. Never written to
+      // the automation, the database, or disk, and never sent back to any client.
+      setPasswordOverride(signInId, value);
+      await live.session.fillPassword(value);
+      res.json({ ok: true });
+    })().catch((e) => {
+      console.error('[atlas] /api/browse/credential failed:', e);
+      if (!res.headersSent) res.status(500).json({ message: 'Something went wrong setting that.' });
     });
   });
 

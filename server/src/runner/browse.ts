@@ -61,21 +61,43 @@ export class BrowseSession extends EventEmitter {
   }
 
   /** What's at this point, and (for a nav link or button) actually go there so recording can continue on the next page. */
-  async click(x: number, y: number): Promise<{ label: string; kind: Kind } | null> {
+  async click(x: number, y: number): Promise<{ label: string; kind: Kind; isPassword?: boolean } | null> {
     if (!this.page) return null;
     const hit = await elementAt(this.page, x, y);
     if (!hit) return null;
+    const isPassword = hit.kind === 'button' && hit.ref === 'password';
     this.lastFieldRef = hit.kind === 'field' && hit.ref ? hit.ref : null;
     await this.page.mouse.click(x, y).catch(() => {});
     await this.page.waitForLoadState('domcontentloaded', { timeout: 4000 }).catch(() => {});
     await this.snap();
-    return { label: hit.label, kind: hit.kind };
+    return { label: hit.label, kind: hit.kind, ...(isPassword ? { isPassword: true } : {}) };
   }
 
-  /** Fills the field last clicked — real, live typing on the real page, so what Diane sees on screen is what gets saved into the step. */
+  /**
+   * Fills the field last clicked — real, live typing on the real page, so what Diane sees on
+   * screen is what gets saved into the step. A <select> can't be `.fill()`ed (Playwright throws),
+   * so this picks whichever real method the element actually needs.
+   */
   async type(value: string) {
     if (!this.page || !this.lastFieldRef) return;
-    await locatorFor(this.page, this.lastFieldRef)
+    const loc = locatorFor(this.page, this.lastFieldRef);
+    const tag = await loc.evaluate((el) => el.tagName).catch(() => '');
+    if (tag === 'SELECT') {
+      await loc.selectOption({ label: value }).catch(() =>
+        loc.selectOption(value).catch(() => {}),
+      );
+    } else {
+      await loc.fill(value).catch(() => {});
+    }
+    await this.snap();
+  }
+
+  /** Fills the real password field for real, so what's typed in the popup is visible on the page too — the value itself never returns to any client, only `credentials.ts`'s in-memory override gets it (see mount.ts). */
+  async fillPassword(value: string) {
+    if (!this.page) return;
+    await this.page
+      .locator('input[type=password]')
+      .first()
       .fill(value)
       .catch(() => {});
     await this.snap();

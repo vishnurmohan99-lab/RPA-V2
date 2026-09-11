@@ -244,12 +244,26 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
   const activeLiveKind: 'browse' | 'run' = live.phase !== 'idle' ? 'run' : 'browse';
   const openedIdRef = useRef<string | null>(null);
 
+  // Whichever sign-in this workflow already uses (its first signin step's chosen one, or just
+  // the first saved sign-in) — passed to the popup so a password click there can offer setting
+  // that sign-in's password for this server session, without the popup needing its own copy of
+  // the sign-ins list.
+  const popupSignIn = (() => {
+    const stepLabel = automation.steps.find((s) => s.verb === 'signin')?.value;
+    return state.signIns.find((s) => s.label === stepLabel) ?? state.signIns[0] ?? null;
+  })();
+
   const openLiveTab = useCallback(
     (idToOpen: string, kind: 'browse' | 'run') => {
-      const href = `${location.origin}${location.pathname}#live=${kind}&id=${encodeURIComponent(idToOpen)}&url=${encodeURIComponent(automation.startUrl || 'https://example.com')}`;
+      const params = new URLSearchParams({ live: kind, id: idToOpen, url: automation.startUrl || 'https://example.com' });
+      if (popupSignIn) {
+        params.set('signInId', popupSignIn.id);
+        params.set('signInLabel', popupSignIn.label);
+      }
+      const href = `${location.origin}${location.pathname}#${params.toString()}`;
       window.open(href, `atlas-live-${automation.id}`, 'noopener');
     },
-    [automation.id, automation.startUrl],
+    [automation.id, automation.startUrl, popupSignIn],
   );
 
   useEffect(() => {

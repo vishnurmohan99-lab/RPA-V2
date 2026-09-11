@@ -36,11 +36,11 @@ export function useAttachSession(kind: AttachKind, id: string) {
     return () => ws.close();
   }, [id]);
 
-  const click = async (xPct: number, yPct: number): Promise<{ label: string; kind: Kind } | null> => {
+  const click = async (xPct: number, yPct: number): Promise<{ label: string; kind: Kind; isPassword?: boolean } | null> => {
     const x = Math.round(xPct * 1280);
     const y = Math.round(yPct * 800);
     const hit = kind === 'browse' ? await api.browseClick(id, x, y) : await api.livePick(id, x, y);
-    return hit as { label: string; kind: Kind } | null;
+    return hit as { label: string; kind: Kind; isPassword?: boolean } | null;
   };
 
   const scroll = (deltaY: number) => {
@@ -55,5 +55,11 @@ export function useAttachSession(kind: AttachKind, id: string) {
     if (kind === 'browse') await api.browseType(id, value).catch(() => {});
   };
 
-  return { screenshot, highlight, logs, connected, click, scroll, type };
+  // Sets a password for this server session only (in-memory, never persisted) and fills it on
+  // the real page for real — see credentials.ts. Only meaningful while authoring.
+  const setCredential = async (signInId: string, value: string) => {
+    if (kind === 'browse') await api.browseSetCredential(id, signInId, value).catch(() => {});
+  };
+
+  return { screenshot, highlight, logs, connected, click, scroll, type, setCredential };
 }

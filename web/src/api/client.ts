@@ -76,5 +76,6 @@ export const api = {
   browseClick: (browseId: string, x: number, y: number) => req<{ label: string; kind: string } | null>(`/browse/${browseId}/click`, json('POST', { x, y })),
   browseScroll: (browseId: string, deltaY: number) => req(`/browse/${browseId}/scroll`, json('POST', { deltaY })),
   browseType: (browseId: string, value: string) => req(`/browse/${browseId}/type`, json('POST', { value })),
+  browseSetCredential: (browseId: string, signInId: string, value: string) => req(`/browse/${browseId}/credential`, json('POST', { signInId, value })),
   stopBrowse: (browseId: string) => req(`/browse/${browseId}/stop`, json('POST', {})),
 };

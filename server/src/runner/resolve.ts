@@ -145,8 +145,10 @@ export async function elementAt(page: Page, x: number, y: number): Promise<Candi
   // above) -- so Diane can never be asked to type a literal password into a step's saved value.
   // But clicking one while recording clearly means "this is the sign-in form", so hand back the
   // same {kind:'button', label:'Sign in'} shape a click on an actual "Sign in" button would --
-  // the client already turns that into a proper signin step, with the real password coming from
-  // the server's own environment file at run time, never typed into the app.
+  // the client already turns that into a proper signin step. ref:'password' is a sentinel (never
+  // a real data-atlas-ref, those are numeric strings) the popup uses to also offer setting the
+  // real password for this server session only -- see BrowseSession.click/fillPassword and
+  // credentials.ts's in-memory override map. The password itself never becomes a Candidate/step.
   const isPassword = (await page.evaluate(
     `(function(px, py) {
       var els = document.elementsFromPoint(px, py);
@@ -154,6 +156,6 @@ export async function elementAt(page: Page, x: number, y: number): Promise<Candi
       return false;
     })(${x}, ${y})`,
   )) as boolean;
-  if (isPassword) return { ref: '', kind: 'button', label: 'Sign in', box: { x: x - 1, y: y - 1, width: 2, height: 2 } };
+  if (isPassword) return { ref: 'password', kind: 'button', label: 'Sign in', box: { x: x - 1, y: y - 1, width: 2, height: 2 } };
   return null;
 }
