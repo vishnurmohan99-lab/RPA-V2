@@ -157,5 +157,25 @@ export async function elementAt(page: Page, x: number, y: number): Promise<Candi
     })(${x}, ${y})`,
   )) as boolean;
   if (isPassword) return { ref: 'password', kind: 'button', label: 'Sign in', box: { x: x - 1, y: y - 1, width: 2, height: 2 } };
+  // Nothing matched any of the specific selectors above -- a real site's own nav/menu items are
+  // very often a plain, non-semantic <div>/<li> with a click handler, not an <a href> or a
+  // [role=button]. Rather than silently having nothing to name (and, in BrowseSession.click,
+  // silently not clicking at all), fall back to whatever text or accessible name the clicked
+  // element or a shallow ancestor actually carries. ref:'generic' is a sentinel like
+  // ref:'password' above -- there's no data-atlas-ref to click through later, but BrowseSession
+  // always clicks by raw (x, y) during authoring anyway, so none is needed.
+  const generic = (await page.evaluate(
+    `(function(px, py) {
+      var node = document.elementFromPoint(px, py);
+      for (var i = 0; i < 4 && node; i++) {
+        var t = node.getAttribute && (node.getAttribute('aria-label') || node.getAttribute('title'));
+        if (!t) { var txt = (node.innerText || node.textContent || '').trim(); if (txt && txt.length < 60) t = txt; }
+        if (t) return t.trim();
+        node = node.parentElement;
+      }
+      return null;
+    })(${x}, ${y})`,
+  )) as string | null;
+  if (generic) return { ref: 'generic', kind: 'button', label: generic, box: { x: x - 1, y: y - 1, width: 2, height: 2 } };
   return null;
 }

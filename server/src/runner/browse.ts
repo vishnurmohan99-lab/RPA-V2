@@ -60,16 +60,23 @@ export class BrowseSession extends EventEmitter {
     }
   }
 
-  /** What's at this point, and (for a nav link or button) actually go there so recording can continue on the next page. */
+  /**
+   * What's at this point, and (for a nav link, button, or anything else) actually go there --
+   * always, whether or not anything nameable was found. It used to return early without ever
+   * clicking when `elementAt` found nothing, which meant a real click on a real, unnamed element
+   * (a sidebar icon built as a plain <div>, say) silently did nothing at all on the real page.
+   * Now the click always happens; `elementAt`'s generic fallback also means a hit is rarely null
+   * any more, but "no candidate to name" and "don't click" are two different things regardless.
+   */
   async click(x: number, y: number): Promise<{ label: string; kind: Kind; isPassword?: boolean } | null> {
     if (!this.page) return null;
     const hit = await elementAt(this.page, x, y);
-    if (!hit) return null;
-    const isPassword = hit.kind === 'button' && hit.ref === 'password';
-    this.lastFieldRef = hit.kind === 'field' && hit.ref ? hit.ref : null;
+    const isPassword = hit?.kind === 'button' && hit.ref === 'password';
+    this.lastFieldRef = hit?.kind === 'field' && hit.ref ? hit.ref : null;
     await this.page.mouse.click(x, y).catch(() => {});
     await this.page.waitForLoadState('domcontentloaded', { timeout: 4000 }).catch(() => {});
     await this.snap();
+    if (!hit) return null;
     return { label: hit.label, kind: hit.kind, ...(isPassword ? { isPassword: true } : {}) };
   }
 
