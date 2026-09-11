@@ -115,6 +115,20 @@ export function mountRunner(app: Express, store: Store, files: AppFileStore) {
     });
   });
 
+  app.post('/api/browse/:browseId/scroll', (req, res) => {
+    (async () => {
+      const live = isSafeId(req.params.browseId) ? runs.get(req.params.browseId) : undefined;
+      if (!live || !(live.session instanceof BrowseSession)) return res.status(404).json({ message: 'That browser is not open any more.' });
+      const { deltaY } = req.body ?? {};
+      if (typeof deltaY !== 'number') return res.status(400).json({ message: 'No scroll amount given.' });
+      await live.session.scroll(deltaY);
+      res.json({ ok: true });
+    })().catch((e) => {
+      console.error('[atlas] /api/browse/scroll failed:', e);
+      if (!res.headersSent) res.status(500).json({ message: 'Something went wrong scrolling the page.' });
+    });
+  });
+
   app.post('/api/browse/:browseId/stop', (req, res) => {
     const live = isSafeId(req.params.browseId) ? runs.get(req.params.browseId) : undefined;
     if (!live || !(live.session instanceof BrowseSession)) return res.status(404).json({ message: 'That browser is not open any more.' });
@@ -174,6 +188,15 @@ export function mountRunner(app: Express, store: Store, files: AppFileStore) {
     if (typeof x !== 'number' || typeof y !== 'number') return res.status(400).json({ message: 'No point given.' });
     const hit = await live.session.pick(x, y);
     res.json(hit);
+  });
+
+  app.post('/api/runs/:runId/scroll', async (req, res) => {
+    const live = find(req, res);
+    if (!live) return;
+    const { deltaY } = req.body ?? {};
+    if (typeof deltaY !== 'number') return res.status(400).json({ message: 'No scroll amount given.' });
+    await live.session.scroll(deltaY);
+    res.json({ ok: true });
   });
 
   const wss = new WebSocketServer({ noServer: true });

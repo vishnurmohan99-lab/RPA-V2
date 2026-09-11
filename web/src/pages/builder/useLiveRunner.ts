@@ -181,6 +181,10 @@ export function useLiveRunner(automationId: string) {
     if (hit) answer(hit.label);
   };
 
+  const scroll = (deltaY: number) => {
+    if (runIdRef.current) api.liveScroll(runIdRef.current, deltaY).catch(() => {});
+  };
+
   return {
     phase,
     screenshot,
@@ -202,5 +206,6 @@ export function useLiveRunner(automationId: string) {
     cancel,
     dismiss,
     pick,
+    scroll,
   };
 }

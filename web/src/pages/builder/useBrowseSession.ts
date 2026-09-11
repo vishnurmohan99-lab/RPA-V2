@@ -64,5 +64,9 @@ export function useBrowseSession(url: string | null) {
     return hit as { label: string; kind: Kind } | null;
   };
 
-  return { screenshot, connecting, error, click };
+  const scroll = (deltaY: number) => {
+    if (idRef.current) api.browseScroll(idRef.current, deltaY).catch(() => {});
+  };
+
+  return { screenshot, connecting, error, click, scroll };
 }

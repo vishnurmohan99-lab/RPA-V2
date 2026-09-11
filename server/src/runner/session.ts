@@ -208,6 +208,13 @@ export class RunSession extends EventEmitter {
     return c ? { label: c.label, kind: c.kind } : null;
   }
 
+  /** Scrolls the real page — the 1280×800 screenshot is only ever one screenful, so this is how Diane sees the rest of a taller page. */
+  async scroll(deltaY: number) {
+    if (!this.page) return;
+    await this.page.mouse.wheel(0, deltaY).catch(() => {});
+    await this.snap();
+  }
+
   // ---- the run -------------------------------------------------------------
 
   private async resolveUser(page: Page): Promise<Match | null> {

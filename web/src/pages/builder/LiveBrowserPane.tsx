@@ -25,6 +25,7 @@ export function LiveBrowserPane({
   logs,
   picking,
   onPick,
+  onScroll,
   startUrl,
 }: {
   screenshot: string | null;
@@ -32,6 +33,7 @@ export function LiveBrowserPane({
   logs: LiveLog[];
   picking: boolean;
   onPick: (xPct: number, yPct: number) => void;
+  onScroll: (deltaY: number) => void;
   startUrl: string;
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
@@ -48,6 +50,13 @@ export function LiveBrowserPane({
     onPick((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
   };
 
+  // Scrolling over the live view scrolls the real page (it's only ever a single 1280×800
+  // screenshot) instead of the builder page behind it.
+  const onWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    onScroll(e.deltaY);
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-line bg-white">
       <div className="flex items-center gap-2.5 border-b border-line bg-[#FCFCFD] px-3.5 py-2.5">
@@ -56,7 +65,7 @@ export function LiveBrowserPane({
         <span className="whitespace-nowrap text-[11.5px] font-semibold text-teal">Real browser</span>
       </div>
 
-      <div ref={containerRef} className="flex min-h-0 flex-[2] items-center justify-center overflow-hidden bg-[#0B0D0F]">
+      <div ref={containerRef} className="flex min-h-0 flex-[2] items-center justify-center overflow-hidden bg-[#0B0D0F]" onWheel={onWheel}>
         {screenshot ? (
           // Sized in JS (useContainSize) to the exact pixel box that fits the container without
           // distorting the 1280:800 ratio -- CSS aspect-ratio alone stretched the image whenever

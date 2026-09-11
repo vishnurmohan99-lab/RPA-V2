@@ -17,6 +17,7 @@ export function BrowsePane({
   url,
   recording,
   onClick,
+  onScroll,
   badge,
 }: {
   screenshot: string | null;
@@ -25,6 +26,7 @@ export function BrowsePane({
   url: string;
   recording: boolean;
   onClick: (xPct: number, yPct: number) => void;
+  onScroll: (deltaY: number) => void;
   badge?: ReactNode;
 }) {
   const imgRef = useRef<HTMLImageElement>(null);
@@ -38,6 +40,13 @@ export function BrowsePane({
     onClick((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
   };
 
+  // Scrolling over the live view scrolls the real page (it's only ever a single 1280×800
+  // screenshot) instead of the builder page behind it.
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    onScroll(e.deltaY);
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[10px] border border-line bg-white">
       <div className="flex items-center gap-2.5 border-b border-line bg-[#FCFCFD] px-3.5 py-2.5">
@@ -46,7 +55,7 @@ export function BrowsePane({
         {badge}
       </div>
 
-      <div ref={containerRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#0B0D0F]">
+      <div ref={containerRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#0B0D0F]" onWheel={handleWheel}>
         {error ? (
           <div className="max-w-[320px] px-4 text-center text-[12.5px] leading-[1.6] text-white/70">{error}</div>
         ) : screenshot ? (

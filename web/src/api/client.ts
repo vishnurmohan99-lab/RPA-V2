@@ -64,6 +64,7 @@ export const api = {
   liveDecline: (runId: string) => req(`/runs/${runId}/decline`, json('POST', {})),
   liveStop: (runId: string) => req(`/runs/${runId}/stop`, json('POST', {})),
   livePick: (runId: string, x: number, y: number) => req<{ label: string; kind: string } | null>(`/runs/${runId}/pick`, json('POST', { x, y })),
+  liveScroll: (runId: string, deltaY: number) => req(`/runs/${runId}/scroll`, json('POST', { deltaY })),
   liveSocketUrl: (runId: string) => {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${proto}//${location.host}/live?runId=${encodeURIComponent(runId)}`;
@@ -73,5 +74,6 @@ export const api = {
   // real Starting URL instead of the synthetic mockup — same WebSocket mechanism as a run.
   startBrowse: (url: string) => req<{ browseId: string }>('/browse', json('POST', { url })),
   browseClick: (browseId: string, x: number, y: number) => req<{ label: string; kind: string } | null>(`/browse/${browseId}/click`, json('POST', { x, y })),
+  browseScroll: (browseId: string, deltaY: number) => req(`/browse/${browseId}/scroll`, json('POST', { deltaY })),
   stopBrowse: (browseId: string) => req(`/browse/${browseId}/stop`, json('POST', {})),
 };

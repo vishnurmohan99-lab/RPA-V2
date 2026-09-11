@@ -471,13 +471,14 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
                     setTab('logs');
                   }}
                 />
-                <div className="h-[min(78vh,820px)] min-h-[420px]">
+                <div className="h-[min(85vh,900px)] min-h-[460px]">
                   <LiveBrowserPane
                     screenshot={live.screenshot}
                     highlight={live.highlight}
                     logs={live.logs}
                     picking={live.picking}
                     onPick={(x, y) => live.pick(x, y, 1280, 800)}
+                    onScroll={live.scroll}
                     startUrl={automation.startUrl || 'https://example.com'}
                   />
                 </div>
@@ -523,7 +524,7 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
                     }}
                   />
                 )}
-                <div className="h-[min(78vh,820px)] min-h-[420px]">
+                <div className="h-[min(85vh,900px)] min-h-[460px]">
                   {runTarget === 'browser' ? (
                     <BrowsePane
                       screenshot={browse.screenshot}
@@ -532,6 +533,7 @@ function BuilderInner({ automation, start }: { automation: Automation; start?: S
                       url={automation.startUrl || 'https://example.com'}
                       recording={recording || !!pick}
                       onClick={onBrowseClick}
+                      onScroll={browse.scroll}
                       badge={badge}
                     />
                   ) : (
